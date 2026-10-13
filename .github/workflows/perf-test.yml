@@ -1,0 +1,84 @@
+name: Performance Test (性能测试)
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'perf/**'
+      - '.github/workflows/perf-test.yml'
+      - 'docker-compose.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'perf/**'
+  schedule:
+    - cron: '0 20 * * *'  # UTC 20:00 = 北京时间凌晨 4:00
+  workflow_dispatch:
+
+jobs:
+  k6-performance-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 用 Docker 启动被测服务（复用项目一的 demo-api）
+      - name: Clone demo-api (被测服务)
+        run: |
+          git clone https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          cp -r /tmp/demo-api/* ./quality-pipeline-demo/ 2>/dev/null || true
+          # 如果目录不存在，用当前仓库结构
+          if [ ! -d "./quality-pipeline-demo" ]; then
+            mkdir -p ./quality-pipeline-demo
+            cp -r /tmp/demo-api/* ./quality-pipeline-demo/
+          fi
+
+      - name: Build & start API service
+        run: |
+          cd quality-pipeline-demo
+          docker build -t demo-api .
+          cd ..
+          docker compose up -d api
+          # 等待服务就绪
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health; then
+              echo "Service is ready!"
+              break
+            fi
+            echo "Waiting... ($i)"
+            sleep 2
+          done
+
+      # 安装 k6
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com --recv-keys C5AD17C9B7BDB5F1
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+          k6 version
+
+      # 运行压测脚本
+      - name: Run k6 performance test
+        run: |
+          mkdir -p perf/results
+          k6 run perf/scripts/01-simple-get.js \
+            --out json=perf/results/result.json \
+            --out csv=perf/results/result.csv
+
+      # 上传压测结果
+      - name: Upload performance results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-results-${{ github.run_id }}
+          path: |
+            perf/results/
+
+      # 清理
+      - name: Cleanup
+        if: always()
+        run: docker compose down

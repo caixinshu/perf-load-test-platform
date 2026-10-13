@@ -1,0 +1,37 @@
+# docker-compose.yml
+# 性能测试环境编排：被测服务 + k6 压测
+
+version: '3.8'
+
+services:
+  # 被测 API 服务
+  api:
+    build:
+      context: ./quality-pipeline-demo
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///data/test.db
+    volumes:
+      - api_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # k6 压测容器（按需启动）
+  k6:
+    image: grafana/k6:latest
+    profiles: ["perf"]
+    volumes:
+      - ./perf/scripts:/scripts
+      - ./perf/results:/results
+    depends_on:
+      api:
+        condition: service_healthy
+    entrypoint: ["k6", "run", "/scripts/01-simple-get.js"]
+
+volumes:
+  api_data:
