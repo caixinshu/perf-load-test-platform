@@ -16,7 +16,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  k6-performance-test:
+  # ---------------------------------------------------------------------------
+  # 提交级：快速冒烟压测（10 VU / 30s）
+  # 每次 push / PR 都跑，作为性能门禁：阈值不通过则流水线中断
+  # ---------------------------------------------------------------------------
+  k6-smoke-test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -24,24 +28,17 @@ jobs:
         with:
           fetch-depth: 0
 
-      # 用 Docker 启动被测服务（复用项目一的 demo-api）
+      # 用途：perf-load-test-platform 的 docker-compose 引用 ./quality-pipeline-demo，
+      # 该目录不在本仓库中，需要在 CI 里拉取项目一的被测服务
       - name: Clone demo-api (被测服务)
         run: |
-          git clone https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
-          cp -r /tmp/demo-api/* ./quality-pipeline-demo/ 2>/dev/null || true
-          # 如果目录不存在，用当前仓库结构
-          if [ ! -d "./quality-pipeline-demo" ]; then
-            mkdir -p ./quality-pipeline-demo
-            cp -r /tmp/demo-api/* ./quality-pipeline-demo/
-          fi
+          git clone --depth 1 https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          mkdir -p ./quality-pipeline-demo
+          cp -r /tmp/demo-api/. ./quality-pipeline-demo/
 
       - name: Build & start API service
         run: |
-          cd quality-pipeline-demo
-          docker build -t demo-api .
-          cd ..
           docker compose up -d api
-          # 等待服务就绪
           for i in {1..30}; do
             if curl -sf http://localhost:8000/health; then
               echo "Service is ready!"
@@ -51,7 +48,6 @@ jobs:
             sleep 2
           done
 
-      # 安装 k6
       - name: Install k6
         run: |
           sudo gpg -k
@@ -61,24 +57,84 @@ jobs:
           sudo apt-get install -y k6
           k6 version
 
-      # 运行压测脚本
-      - name: Run k6 performance test
+      - name: Run k6 smoke test
         run: |
           mkdir -p perf/results
           k6 run perf/scripts/01-simple-get.js \
-            --out json=perf/results/result.json \
-            --out csv=perf/results/result.csv
+            --summary-export=perf/results/smoke-summary.json \
+            --out json=perf/results/smoke-result.json
 
-      # 上传压测结果
-      - name: Upload performance results
+      - name: Upload smoke results
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: perf-results-${{ github.run_id }}
-          path: |
-            perf/results/
+          name: perf-smoke-${{ github.run_id }}
+          path: perf/results/
 
-      # 清理
+      - name: Cleanup
+        if: always()
+        run: docker compose down
+
+  # ---------------------------------------------------------------------------
+  # 每日级：完整负载测试（stages 三段式 / 20 VU / 3 分钟）
+  # 只在定时任务和手动触发时运行，避免每次 push 都占用 3 分钟
+  #
+  # 【观察期】基线尚未建立，暂不阻断流水线（continue-on-error: true）
+  #   门禁值需要来自实测基线，而不是拍脑袋：
+  #   观察期积累数据 -> 取稳定运行的 p95 作为基线 -> 基线 × 1.5 作为门禁值
+  #   基线确定后去掉 continue-on-error，即可正式启用性能门禁
+  # ---------------------------------------------------------------------------
+  k6-load-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone demo-api (被测服务)
+        run: |
+          git clone --depth 1 https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          mkdir -p ./quality-pipeline-demo
+          cp -r /tmp/demo-api/. ./quality-pipeline-demo/
+
+      - name: Build & start API service
+        run: |
+          docker compose up -d api
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health; then
+              echo "Service is ready!"
+              break
+            fi
+            echo "Waiting... ($i)"
+            sleep 2
+          done
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com --recv-keys C5AD17C9B7BDB5F1
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+          k6 version
+
+      - name: Run k6 load test (观察期，不阻断流水线)
+        continue-on-error: true
+        run: |
+          mkdir -p perf/results
+          k6 run perf/scripts/02-load-test.js \
+            --summary-export=perf/results/load-summary.json \
+            --out json=perf/results/load-result.json
+
+      - name: Upload load test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-load-${{ github.run_id }}
+          path: perf/results/
+
       - name: Cleanup
         if: always()
         run: docker compose down

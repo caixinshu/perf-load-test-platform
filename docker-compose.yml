@@ -31,7 +31,10 @@ services:
     depends_on:
       api:
         condition: service_healthy
-    entrypoint: ["k6", "run", "/scripts/01-simple-get.js"]
+    # 默认跑快速冒烟脚本；完整负载测试可覆盖 command：
+    #   docker compose --profile perf run --rm k6 /scripts/02-load-test.js
+    entrypoint: ["k6", "run"]
+    command: ["/scripts/01-simple-get.js"]
 
 volumes:
   api_data:

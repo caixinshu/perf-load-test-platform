@@ -78,12 +78,27 @@ curl http://localhost:8000/health
 docker compose up -d api
 
 # 2. 运行压测
-k6 run perf/scripts/01-simple-get.js
+k6 run perf/scripts/01-simple-get.js     # 快速冒烟：10 VU / 30s
+k6 run perf/scripts/02-load-test.js      # 完整负载：20 VU / 3min（stages 三段式）
 
-# 3. 输出 JSON/CSV 结果
+# 3. 输出结构化结果
+k6 run --summary-export=perf/results/summary.json perf/scripts/02-load-test.js
 k6 run --out json=perf/results/result.json perf/scripts/01-simple-get.js
-k6 run --out csv=perf/results/result.csv perf/scripts/01-simple-get.js
 ```
+
+### 方式三：本地 k6 + 本地 Python 服务（不需要 Docker）
+
+```bash
+# 1. 启动被测服务（Windows PowerShell）
+cd quality-pipeline-demo
+$env:DB_PATH = "f:\apk\其他\todo\quality-pipeline-demo\demo.db"
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+# 2. 另开一个终端运行压测
+k6 run -e BASE_URL=http://localhost:8000 perf/scripts/02-load-test.js
+```
+
+> 所有压测脚本都支持用 `-e BASE_URL=...` 覆盖被测地址，方便指向不同环境。
 
 ## 目录结构
 
@@ -99,9 +114,11 @@ perf-load-test-platform/
 │   │   ├── 03_test_types.md          # 6种测试类型
 │   │   ├── 04_test_workflow.md       # 8步测试流程
 │   │   ├── 05_bottlenecks.md         # 6类性能瓶颈
-│   │   └── 06_k6_metrics_guide.md    # k6 指标解读笔记
+│   │   ├── 06_k6_metrics_guide.md    # k6 指标解读笔记
+│   │   └── 07_k6_stages_and_modules.md # stages 加压模式 + 模块 + 首次负载实测
 │   ├── scripts/                     # k6 压测脚本
-│   │   └── 01-simple-get.js          # 第一个压测脚本
+│   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟）
+│   │   └── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签）
 │   ├── results/                     # 压测结果（gitignore）
 │   └── data/                        # 测试数据
 ├── docker-compose.yml               # 环境编排
@@ -111,20 +128,34 @@ perf-load-test-platform/
 
 ## CI/CD
 
-| 触发条件 | 行为 |
-|----------|------|
-| push 到 main/develop | 运行 k6 压测 |
-| PR 到 main | 运行 k6 压测 |
-| 每日定时 (UTC 20:00) | 日常性能回归 |
-| 手动触发 | 随时验证 |
+采用**分层执行**，避免每次提交都跑满负载：
 
-压测结果会上传为 Artifact，可在 Actions 页面下载查看。
+| Job | 脚本 | 负载 | 触发条件 | 是否阻断流水线 |
+|-----|------|------|----------|----------------|
+| `k6-smoke-test` | `01-simple-get.js` | 10 VU / 30s | push、PR | ✅ 是（性能门禁） |
+| `k6-load-test` | `02-load-test.js` | 20 VU / 3min | 定时、手动 | ❌ 否（观察期） |
+
+**为什么负载测试暂时不阻断流水线**：门禁值必须来自实测基线。基线尚未建立时，先用观察期积累几次真实数据，再按「基线 × 1.5」设置门禁值。这与项目一中代码扫描先用 `continue-on-error` 灰度接入是同一个思路。
+
+基线确定后，去掉 `k6-load-test` 的 `continue-on-error: true` 即可正式启用门禁。
+
+压测结果（含 `summary.json`）会上传为 Artifact，可在 Actions 页面下载查看。
+
+### 首次负载测试实测结果（20 VU × 3min）
+
+| 指标 | 实测值 | 阈值 | 判定 |
+|------|--------|------|------|
+| `http_req_duration` | p(95)=1.27s | <500ms | ✗ |
+| `http_req_failed` | 0.53% | <1% | ✓ |
+| `checks` | 99.49% | >99% | ✓ |
+
+读接口 100% 通过，失败全部集中在写路径——详情见 [`07_k6_stages_and_modules.md`](perf/docs/07_k6_stages_and_modules.md) 第八节。
 
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
 - [x] Week 1 Day 2: k6 工具安装与环境搭建
-- [ ] Week 1 Day 3: 第一个完整压测脚本
+- [x] Week 1 Day 3: 第一个完整压测脚本
 - [ ] Week 1 Day 4: 性能指标解读与分析
 - [ ] Week 1 Day 5: 多场景压测脚本
 - [ ] Week 1 Day 6-7: 基线建立 + 监控环境
