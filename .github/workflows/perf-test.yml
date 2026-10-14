@@ -32,7 +32,7 @@ jobs:
       # 该目录不在本仓库中，需要在 CI 里拉取项目一的被测服务
       - name: Clone demo-api (被测服务)
         run: |
-          git clone --depth 1 https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          git clone --depth 1 --branch develop https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
           mkdir -p ./quality-pipeline-demo
           cp -r /tmp/demo-api/. ./quality-pipeline-demo/
 
@@ -95,7 +95,7 @@ jobs:
 
       - name: Clone demo-api (被测服务)
         run: |
-          git clone --depth 1 https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          git clone --depth 1 --branch develop https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
           mkdir -p ./quality-pipeline-demo
           cp -r /tmp/demo-api/. ./quality-pipeline-demo/
 
