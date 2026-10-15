@@ -151,11 +151,17 @@ perf-load-test-platform/
 
 读接口 100% 通过，失败全部集中在写路径——详情见 [`07_k6_stages_and_modules.md`](perf/docs/07_k6_stages_and_modules.md) 第八节。
 
+### Day 4 基线与压力测试结论
+
+- **性能基线**（10 VU / 1min，3 次取稳定值）：TPS ≈ **10 req/s**，p50 ≈ 57ms，p95 ≈ 446ms，错误率 0%，checks 100%。
+- **系统极限**（50→500 VU 阶梯）：极限 TPS ≈ **30 req/s**，拐点在 **50 VU**（此后 TPS 不再增长，p95 线性上升）。全程 0 失败，属软瓶颈（SQLite 每请求新建连接 + 文件锁串行化）。
+- 完整分析框架、百分位表与现象判断思路见 [`08_performance_analysis.md`](perf/docs/08_performance_analysis.md)。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
 - [x] Week 1 Day 2: k6 工具安装与环境搭建
 - [x] Week 1 Day 3: 第一个完整压测脚本
-- [ ] Week 1 Day 4: 性能指标解读与分析
+- [x] Week 1 Day 4: 性能指标解读与分析
 - [ ] Week 1 Day 5: 多场景压测脚本
 - [ ] Week 1 Day 6-7: 基线建立 + 监控环境
