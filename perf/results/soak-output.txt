@@ -1,0 +1,38 @@
+﻿
+
+  █ THRESHOLDS 
+
+    http_req_duration
+    ✓ 'p(95)<800' p(95)=262.07ms
+
+    http_req_failed
+    ✓ 'rate<0.01' rate=0.00%
+
+
+  █ TOTAL RESULTS 
+
+    checks_total.......: 1394    7.530924/s
+    checks_succeeded...: 100.00% 1394 out of 1394
+    checks_failed......: 0.00%   0 out of 1394
+
+    ✓ listItems 200
+    ✓ createItem 200
+
+    HTTP
+    http_req_duration..............: avg=117.93ms min=19.55ms med=99.85ms max=2.29s p(90)=197.24ms p(95)=262.07ms
+      { expected_response:true }...: avg=117.93ms min=19.55ms med=99.85ms max=2.29s p(90)=197.24ms p(95)=262.07ms
+    http_req_failed................: 0.00%  0 out of 1394
+    http_reqs......................: 1394   7.530924/s
+
+    EXECUTION
+    iteration_duration.............: avg=5.24s    min=5.11s   med=5.18s   max=7.71s p(90)=5.31s    p(95)=5.43s   
+    iterations.....................: 697    3.765462/s
+    vus............................: 1      min=1         max=20
+    vus_max........................: 20     min=20        max=20
+
+    NETWORK
+    data_received..................: 44 MB  239 kB/s
+    data_sent......................: 165 kB 892 B/s
+
+
+

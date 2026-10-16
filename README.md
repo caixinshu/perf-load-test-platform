@@ -115,10 +115,18 @@ perf-load-test-platform/
 │   │   ├── 04_test_workflow.md       # 8步测试流程
 │   │   ├── 05_bottlenecks.md         # 6类性能瓶颈
 │   │   ├── 06_k6_metrics_guide.md    # k6 指标解读笔记
-│   │   └── 07_k6_stages_and_modules.md # stages 加压模式 + 模块 + 首次负载实测
+│   │   ├── 07_k6_stages_and_modules.md # stages 加压模式 + 模块 + 首次负载实测
+│   │   ├── 08_performance_analysis.md  # 性能指标解读与分析（5步法 + 基线 + 压力结论）
+│   │   └── 09_scenarios_and_executors.md # 多场景脚本（scenarios + 7种 executor）
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟）
-│   │   └── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签）
+│   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签）
+│   │   ├── baseline.js               # 基准测试（10 VU，建基线）
+│   │   ├── stress-test.js            # 压力测试（50→500 VU，找极限）
+│   │   ├── 03-smoke-test.js          # 冒烟测试（per-vu-iterations）
+│   │   ├── 04-spike-test.js          # 尖峰测试（10→200 VU 突增回落）
+│   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
+│   │   └── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
 │   ├── results/                     # 压测结果（gitignore）
 │   └── data/                        # 测试数据
 ├── docker-compose.yml               # 环境编排
@@ -157,11 +165,24 @@ perf-load-test-platform/
 - **系统极限**（50→500 VU 阶梯）：极限 TPS ≈ **30 req/s**，拐点在 **50 VU**（此后 TPS 不再增长，p95 线性上升）。全程 0 失败，属软瓶颈（SQLite 每请求新建连接 + 文件锁串行化）。
 - 完整分析框架、百分位表与现象判断思路见 [`08_performance_analysis.md`](perf/docs/08_performance_analysis.md)。
 
+### Day 5 多场景压测结论
+
+补齐冒烟、尖峰、稳定性三类脚本，并用 k6 `scenarios` + 多种 `executor` 实现多场景组合压测：
+
+| 脚本 | 类型 | 实测结论 |
+|------|------|----------|
+| [`03-smoke-test.js`](perf/scripts/03-smoke-test.js) | 冒烟 | checks 100%、失败率 0%，读写链路全通 |
+| [`04-spike-test.js`](perf/scripts/04-spike-test.js) | 尖峰（10→200 VU） | 失败率 0%，但 **p95 从 ~140ms 飙到 4.39s**；尖峰期吞吐不升反降（≈25 req/s），属并发过载 |
+| [`05-soak-test.js`](perf/scripts/05-soak-test.js) | 稳定性（20 VU） | 3 分钟 0 失败、p95=262ms；暴露内存泄漏需跑数小时 |
+| [`06-multi-scenario.js`](perf/scripts/06-multi-scenario.js) | 多场景组合 | 3 场景 3 executor + 分场景阈值，全部通过 |
+
+完整讲解（7 种 executor、按场景设阈值、`dropped_iterations`）见 [`09_scenarios_and_executors.md`](perf/docs/09_scenarios_and_executors.md)。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
 - [x] Week 1 Day 2: k6 工具安装与环境搭建
 - [x] Week 1 Day 3: 第一个完整压测脚本
 - [x] Week 1 Day 4: 性能指标解读与分析
-- [ ] Week 1 Day 5: 多场景压测脚本
+- [x] Week 1 Day 5: 多场景压测脚本
 - [ ] Week 1 Day 6-7: 基线建立 + 监控环境
