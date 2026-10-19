@@ -122,7 +122,8 @@ perf-load-test-platform/
 │   │   ├── 08_performance_analysis.md  # 性能指标解读与分析（5步法 + 基线 + 压力结论）
 │   │   ├── 09_scenarios_and_executors.md # 多场景脚本（scenarios + 7种 executor）
 │   │   ├── 10_baseline_and_gating.md   # 基线建立与性能门禁（受控测量 + 门禁推导）
-│   │   └── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
+│   │   ├── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
+│   │   └── 12_week1_summary.md         # Week 1 重点与难点复盘
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
