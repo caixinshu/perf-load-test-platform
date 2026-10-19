@@ -67,6 +67,9 @@ docker compose --profile perf up --abort-on-container-exit
 # 只启动被测服务
 docker compose up -d api
 
+# 启动监控栈（Prometheus + Grafana + node_exporter）
+docker compose --profile monitoring up -d
+
 # 验证服务
 curl http://localhost:8000/health
 ```
@@ -117,16 +120,23 @@ perf-load-test-platform/
 │   │   ├── 06_k6_metrics_guide.md    # k6 指标解读笔记
 │   │   ├── 07_k6_stages_and_modules.md # stages 加压模式 + 模块 + 首次负载实测
 │   │   ├── 08_performance_analysis.md  # 性能指标解读与分析（5步法 + 基线 + 压力结论）
-│   │   └── 09_scenarios_and_executors.md # 多场景脚本（scenarios + 7种 executor）
+│   │   ├── 09_scenarios_and_executors.md # 多场景脚本（scenarios + 7种 executor）
+│   │   ├── 10_baseline_and_gating.md   # 基线建立与性能门禁（受控测量 + 门禁推导）
+│   │   └── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
 │   ├── scripts/                     # k6 压测脚本
-│   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟）
-│   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签）
+│   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
+│   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
 │   │   ├── baseline.js               # 基准测试（10 VU，建基线）
 │   │   ├── stress-test.js            # 压力测试（50→500 VU，找极限）
 │   │   ├── 03-smoke-test.js          # 冒烟测试（per-vu-iterations）
 │   │   ├── 04-spike-test.js          # 尖峰测试（10→200 VU 突增回落）
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
 │   │   └── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
+│   ├── monitoring/                  # 监控栈配置（Day 7）
+│   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + 自身
+│   │   └── grafana/
+│   │       ├── provisioning/         # 数据源 + 面板自动加载
+│   │       └── dashboards/k6-load-test.json # k6 压测实时面板
 │   ├── results/                     # 压测结果（gitignore）
 │   └── data/                        # 测试数据
 ├── docker-compose.yml               # 环境编排
@@ -140,24 +150,27 @@ perf-load-test-platform/
 
 | Job | 脚本 | 负载 | 触发条件 | 是否阻断流水线 |
 |-----|------|------|----------|----------------|
-| `k6-smoke-test` | `01-simple-get.js` | 10 VU / 30s | push、PR | ✅ 是（性能门禁） |
-| `k6-load-test` | `02-load-test.js` | 20 VU / 3min | 定时、手动 | ❌ 否（观察期） |
+| `k6-smoke-test` | `01-simple-get.js` | 10 VU / 30s | push、PR | ✅ 是（门禁 p95<100ms） |
+| `k6-load-test` | `02-load-test.js` | 20 VU / 3min | 定时、手动 | ✅ 是（Day 6 转正，门禁 p95<1.6s） |
+| `k6-load-test-prometheus` | `01-simple-get.js` + remote write | 10 VU / 30s | 仅手动 | ❌ 否（Day 7 灰度接入） |
 
-**为什么负载测试暂时不阻断流水线**：门禁值必须来自实测基线。基线尚未建立时，先用观察期积累几次真实数据，再按「基线 × 1.5」设置门禁值。这与项目一中代码扫描先用 `continue-on-error` 灰度接入是同一个思路。
-
-基线确定后，去掉 `k6-load-test` 的 `continue-on-error: true` 即可正式启用门禁。
+**门禁值必须来自实测基线**：`门禁 = 基线 × 1.5`。
+Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次），得到基线 p95 = **26ms**（冒烟）/ **1.02s**（负载），
+据此定出门禁并去掉观察期的 `continue-on-error`。这与项目一中代码扫描先用 `continue-on-error` 灰度接入是同一个思路，
+区别只在于"灰度期要用来攒基线数据"。推导过程与全部原始数据见 [`10_baseline_and_gating.md`](perf/docs/10_baseline_and_gating.md)。
 
 压测结果（含 `summary.json`）会上传为 Artifact，可在 Actions 页面下载查看。
 
-### 首次负载测试实测结果（20 VU × 3min）
+### 首次负载测试实测结果（20 VU × 3min，Day 3）
 
-| 指标 | 实测值 | 阈值 | 判定 |
-|------|--------|------|------|
+| 指标 | 实测值 | 当时阈值 | 判定 |
+|------|--------|---------|------|
 | `http_req_duration` | p(95)=1.27s | <500ms | ✗ |
 | `http_req_failed` | 0.53% | <1% | ✓ |
 | `checks` | 99.49% | >99% | ✓ |
 
 读接口 100% 通过，失败全部集中在写路径——详情见 [`07_k6_stages_and_modules.md`](perf/docs/07_k6_stages_and_modules.md) 第八节。
+当时的 500ms 是"期望 SLA"，不是实测基线；Day 6 已换成基于基线的门禁（`10_baseline_and_gating.md`）。
 
 ### Day 4 基线与压力测试结论
 
@@ -178,6 +191,70 @@ perf-load-test-platform/
 
 完整讲解（7 种 executor、按场景设阈值、`dropped_iterations`）见 [`09_scenarios_and_executors.md`](perf/docs/09_scenarios_and_executors.md)。
 
+### Day 6 基线建立与性能门禁结论
+
+门禁值不再拍脑袋，改为 `实测基线 × 1.5`。测量过程中发现并修正了一个关键问题：
+
+**第一次测量（未控住数据集）——基线在漂移**
+`02-load-test.js` 每个迭代写入 2 条数据，而 `GET /items` 是全表返回、无分页，于是每一轮的数据集都比上一轮大：
+
+| 轮次 | 开跑数据量 | p95 | TPS | 失败率 |
+|------|-----------|-----|-----|--------|
+| 1 | 1619 条 | 1.27 s | 12.46 | 0.17% |
+| 2 | 2751 条 | 1.81 s | 11.70 | 0.23% |
+| 3 | 3825 条 | 1.66 s | 11.48 | 0.14% |
+
+p95 偏差 **±42%**，远超稳定线——**上升的不是系统劣化，而是测试输入变了**。
+
+**第二次测量（固定 200 条、每轮重置）——基线稳定**
+
+| 脚本 | 基线 p95 | 基线 TPS | 失败率 | checks | 3 次偏差 |
+|------|---------|---------|--------|--------|---------|
+| [`01-simple-get.js`](perf/scripts/01-simple-get.js) | **26 ms** | 9.8 | 0% | 100% | p95 绝对差 13ms |
+| [`02-load-test.js`](perf/scripts/02-load-test.js) | **1.02 s** | 13.2 | ≤0.08% | ≥99.92% | p95 **±1%** |
+
+对照之下，p95 从 1.58s 降到 1.02s，方差从 ±42% 收到 ±1%——数据集就是这轮测试最强的自变量。
+
+**门禁落地**
+
+| 脚本 | 门禁 | 说明 |
+|------|------|------|
+| `01-simple-get.js` | p95<100ms / 失败率<1% / checks>99% | 基线 26ms×1.5=39ms，低于单机噪声幅度（±62%），改用**最小容差 100ms** |
+| `02-load-test.js` | p95<1.6s / 失败率<1% / checks>99% | 基线 1.02s×1.5≈1.53s，向上取整 1.6s |
+
+同时把 `01-simple-get.js` 里 `响应时间 < 200ms` 的逐请求断言从 `checks` 移到了 `thresholds`——
+**checks 管"功能对不对"，thresholds 管"快不快"**，混在一起出了问题无法定位。
+CI 中 `k6-load-test` 已移除 `continue-on-error`，门禁正式生效。
+
+> 注意：1.6s 是**防劣化门禁**，不是对外 SLA（SLA 仍是 p95<500ms，当前未达标，根因是写路径的 SQLite 单写者文件锁）。
+> Week 2 优化完成后必须回头收紧门禁，否则它就变成了技术债的免罪符。
+
+完整方法论（控制变量、基线漂移定位、最小容差规则、基线维护触发条件）见 [`10_baseline_and_gating.md`](perf/docs/10_baseline_and_gating.md)。
+
+### Day 7 监控与可观测性结论
+
+引入 **Prometheus + Grafana + node_exporter** 监控栈，让压测指标从"结束才看到的汇总"变成"过程中可见的曲线"：
+
+```
+k6（请求侧）      ──remote write──▶  Prometheus  ──▶  Grafana（同一时间轴）
+node_exporter（主机侧）──scrape──▶        │
+```
+
+| 产出 | 说明 |
+|------|------|
+| [`docker-compose.yml`](docker-compose.yml) | 新增 `monitoring` profile：prometheus / grafana / node-exporter |
+| [`perf/monitoring/prometheus/prometheus.yml`](perf/monitoring/prometheus/prometheus.yml) | 抓取 node_exporter + 自身 |
+| [`perf/monitoring/grafana/`](perf/monitoring/grafana/) | 数据源与面板自动加载（provisioning） |
+| [`k6-load-test.json`](perf/monitoring/grafana/dashboards/k6-load-test.json) | 8 个 panel：VUs / p95 / TPS / 失败率 + 4 张趋势图（按 `name` 标签下钻到接口） |
+| `.github/workflows/perf-test.yml` | 新增可选 job `k6-load-test-prometheus`（手动触发、灰度接入），k6 用 `--out experimental-prometheus-rw` 推指标，并断言指标真的进了 Prometheus |
+
+关键技术点：**Trend 指标走 native histogram**（`K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true` + Prometheus `--enable-feature=native-histograms`）——
+默认模式下 `http_req_duration` 只能退化成预先指定的单值（如 `k6_http_req_duration_p99`），
+只有直方图才能用 `histogram_quantile()` 算任意百分位。
+
+> **本机没有 Docker**，所以监控栈只能做到"配置就绪 + 语法校验"，端到端链路放在 CI 上验证。
+> 运行命令、面板设计、指标名映射、常见坑速查见 [`11_monitoring_observability.md`](perf/docs/11_monitoring_observability.md)。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -185,4 +262,4 @@ perf-load-test-platform/
 - [x] Week 1 Day 3: 第一个完整压测脚本
 - [x] Week 1 Day 4: 性能指标解读与分析
 - [x] Week 1 Day 5: 多场景压测脚本
-- [ ] Week 1 Day 6-7: 基线建立 + 监控环境
+- [x] Week 1 Day 6-7: 基线建立 + 监控环境

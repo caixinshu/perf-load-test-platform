@@ -1,0 +1,29 @@
+# perf/monitoring/prometheus/prometheus.yml
+# Prometheus 抓取配置
+#
+# 数据来源有两条：
+#   ① 抓取（scrape）：Prometheus 主动去拉 node_exporter / 自身的 /metrics
+#   ② 远程写（remote write）：k6 压测过程中主动把指标推给 Prometheus
+#      —— 这条不走 scrape 配置，靠启动参数 --web.enable-remote-write-receiver 打开入口
+
+global:
+  scrape_interval: 15s      # 默认抓取间隔
+  evaluation_interval: 15s  # 规则评估间隔
+
+scrape_configs:
+  # Prometheus 自身（prometheus_* 指标，用来看抓取是否健康）
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # 主机指标（CPU / 内存 / 磁盘 / 网络），容器名就是服务名
+  - job_name: node-exporter
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # 被测服务 api 目前没有暴露 /metrics，故不配置抓取；
+  # 后续给 FastAPI 接入 prometheus-fastapi-instrumentator 后，打开下面的 job 即可：
+  # - job_name: demo-api
+  #   metrics_path: /metrics
+  #   static_configs:
+  #     - targets: ['api:8000']

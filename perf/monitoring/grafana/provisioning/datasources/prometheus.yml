@@ -1,0 +1,19 @@
+# perf/monitoring/grafana/provisioning/datasources/prometheus.yml
+# Grafana 数据源自动配置（Provisioning）
+# 容器启动时自动读取，无需手工在 UI 里添加数据源。
+#
+# uid 固定为 prometheus，和 dashboard JSON 里 datasource.uid 一一对应，
+# 这样导入面板时不会出现 "datasource not found"。
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    uid: prometheus
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      timeInterval: 5s          # 与 k6 的 remote write 推送间隔对齐
+      httpMethod: POST

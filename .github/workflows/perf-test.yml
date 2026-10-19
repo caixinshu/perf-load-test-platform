@@ -78,10 +78,12 @@ jobs:
   # 每日级：完整负载测试（stages 三段式 / 20 VU / 3 分钟）
   # 只在定时任务和手动触发时运行，避免每次 push 都占用 3 分钟
   #
-  # 【观察期】基线尚未建立，暂不阻断流水线（continue-on-error: true）
-  #   门禁值需要来自实测基线，而不是拍脑袋：
-  #   观察期积累数据 -> 取稳定运行的 p95 作为基线 -> 基线 × 1.5 作为门禁值
-  #   基线确定后去掉 continue-on-error，即可正式启用性能门禁
+  # 【Day 6 已转正】基线已建立，门禁正式生效（去掉 continue-on-error）
+  #   基线测量条件：被测库固定 200 条数据、每轮开跑前重置、20 VU / 3min、重复 3 次
+  #   基线 p(95) = 1.02s / 1.02s / 1.03s
+  #   门禁 = 基线 × 1.5 ≈ 1.6s，已写进 02-load-test.js 的 thresholds
+  #   阈值不通过 -> k6 退出码非 0 -> 每日流水线直接失败并告警
+  #   推导过程与测量数据见 perf/docs/10_baseline_and_gating.md
   # ---------------------------------------------------------------------------
   k6-load-test:
     runs-on: ubuntu-latest
@@ -118,8 +120,7 @@ jobs:
           sudo apt-get install -y k6
           k6 version
 
-      - name: Run k6 load test (观察期，不阻断流水线)
-        continue-on-error: true
+      - name: Run k6 load test (性能门禁，阈值不通过即失败)
         run: |
           mkdir -p perf/results
           k6 run perf/scripts/02-load-test.js \
@@ -136,3 +137,97 @@ jobs:
       - name: Cleanup
         if: always()
         run: docker compose down
+
+  # ---------------------------------------------------------------------------
+  # 监控链路验证（Day 7）：起 Prometheus / Grafana，k6 用 remote write 把指标推进 Prometheus
+  #
+  # 【可选 job】只在手动触发时运行：
+  #   监控端到端验证需要拉起 3 个额外容器，成本高于普通压测，
+  #   且本地无 Docker 无法预演，先做成手动触发的可选链路。
+  #   【灰度接入】continue-on-error: true —— 与项目一代码扫描的灰度接入同一思路，
+  #   先跑通几轮、确认远端环境（native histogram、remote write 接收器）都正常，再考虑转正。
+  # 对应文档：perf/docs/11_monitoring_observability.md
+  # ---------------------------------------------------------------------------
+  k6-load-test-prometheus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.event_name == 'workflow_dispatch'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone demo-api (被测服务)
+        run: |
+          git clone --depth 1 --branch develop https://github.com/caixinshu/quality-pipeline-demo.git /tmp/demo-api
+          mkdir -p ./quality-pipeline-demo
+          cp -r /tmp/demo-api/. ./quality-pipeline-demo/
+
+      - name: Build & start API service
+        run: |
+          docker compose up -d api
+          for i in {1..30}; do
+            if curl -sf http://localhost:8000/health; then
+              echo "Service is ready!"
+              break
+            fi
+            echo "Waiting... ($i)"
+            sleep 2
+          done
+
+      - name: Start monitoring stack (Prometheus + Grafana + node_exporter)
+        run: |
+          docker compose --profile monitoring up -d
+          for i in {1..30}; do
+            if curl -sf http://localhost:9090/-/ready; then
+              echo "Prometheus is ready!"
+              break
+            fi
+            echo "Waiting for Prometheus... ($i)"
+            sleep 2
+          done
+
+      - name: Install k6
+        run: |
+          curl -fsSL https://dl.k6.io/key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/k6-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+          k6 version
+
+      - name: Run k6 with Prometheus remote write
+        run: |
+          mkdir -p perf/results
+          K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write \
+          K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
+          K6_PROMETHEUS_RW_STALE_MARKERS=true \
+          K6_PROMETHEUS_RW_LABELS="environment=ci,runner=github-actions" \
+          k6 run -o experimental-prometheus-rw perf/scripts/01-simple-get.js \
+            --summary-export=perf/results/rw-summary.json
+
+      # 断言"指标真的进了 Prometheus"，否则链路只是"看起来跑通了"
+      - name: Verify k6 metrics reached Prometheus
+        run: |
+          echo "--- k6_http_reqs_total ---"
+          curl -sfG http://localhost:9090/api/v1/query \
+            --data-urlencode 'query=count(k6_http_reqs_total)' | head -c 1000
+          echo ""
+          echo "--- k6_http_req_duration_seconds (native histogram) ---"
+          curl -sfG http://localhost:9090/api/v1/query \
+            --data-urlencode 'query=count(k6_http_req_duration_seconds)' | head -c 1000
+          echo ""
+          echo "--- k6_http_req_failed_rate ---"
+          curl -sfG http://localhost:9090/api/v1/query \
+            --data-urlencode 'query=count(k6_http_req_failed_rate)' | head -c 1000
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-remote-write-${{ github.run_id }}
+          path: perf/results/
+
+      - name: Cleanup
+        if: always()
+        run: docker compose --profile monitoring down

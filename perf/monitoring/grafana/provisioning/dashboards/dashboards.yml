@@ -1,0 +1,18 @@
+# perf/monitoring/grafana/provisioning/dashboards/dashboards.yml
+# Grafana 面板自动加载（Provisioning）
+# 把 ./perf/monitoring/grafana/dashboards 目录挂进容器后，这里声明扫描该目录，
+# 目录下所有 *.json 面板会在启动时自动创建，改文件后 Grafana 每 10s 重新加载。
+
+apiVersion: 1
+
+providers:
+  - name: 'perf-load-test-platform'
+    orgId: 1
+    folder: 'k6 性能测试'
+    type: file
+    disableDeletion: false
+    allowUiUpdates: true
+    updateIntervalSeconds: 10
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

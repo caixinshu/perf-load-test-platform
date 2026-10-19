@@ -1,5 +1,16 @@
 # docker-compose.yml
-# 性能测试环境编排：被测服务 + k6 压测
+# 性能测试环境编排：被测服务 + k6 压测 + 监控栈（Prometheus / Grafana / node_exporter）
+#
+# profile 用法：
+#   仅被测服务        docker compose up -d api
+#   压测（api+k6）    docker compose --profile perf up --abort-on-container-exit
+#   监控栈            docker compose --profile monitoring up -d
+#   压测 + 监控联动    docker compose --profile perf --profile monitoring up -d
+#
+# 监控栈启动后：
+#   Prometheus  http://localhost:9090
+#   Grafana     http://localhost:3000  （默认 admin / admin）
+#   node_exporter  http://localhost:9100/metrics
 
 version: '3.8'
 
@@ -36,5 +47,61 @@ services:
     entrypoint: ["k6", "run"]
     command: ["/scripts/01-simple-get.js"]
 
+  # ---------------------------------------------------------------------------
+  # 监控栈（Day 7）：Prometheus + Grafana + node_exporter
+  # 独立 monitoring profile，不影响上面两条既有流程，按需启动
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    profiles: ["monitoring"]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./perf/monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # ① 打开远程写接收器：k6 用 --out experimental-prometheus-rw 主动把指标推进来
+      - --web.enable-remote-write-receiver
+      # ② 打开 native histogram：k6 的 Trend 指标（如 http_req_duration）以直方图形式写入，
+      #    Grafana 才能用 histogram_quantile() 算出 p95/p99
+      - --enable-feature=native-histograms
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    profiles: ["monitoring"]
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      # 匿名只读访问，方便本地直接打开面板不用登录
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+    volumes:
+      - ./perf/monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./perf/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.8.2
+    profiles: ["monitoring"]
+    ports:
+      - "9100:9100"
+    # 说明：这里只采集容器自身可见的主机指标。
+    # 在 Linux 宿主机上若要采集完整宿主指标，需追加只读挂载：
+    #   volumes: ["/proc:/host/proc:ro", "/sys:/host/sys:ro", "/:/rootfs:ro"]
+    #   command: ["--path.procfs=/host/proc", "--path.sysfs=/host/sys", "--path.rootfs=/rootfs"]
+    # Windows + Docker Desktop 下无宿主 /proc，故不挂载，仅作演示。
+    restart: unless-stopped
+
 volumes:
   api_data:
+  prometheus_data:
+  grafana_data:
