@@ -123,7 +123,8 @@ perf-load-test-platform/
 │   │   ├── 09_scenarios_and_executors.md # 多场景脚本（scenarios + 7种 executor）
 │   │   ├── 10_baseline_and_gating.md   # 基线建立与性能门禁（受控测量 + 门禁推导）
 │   │   ├── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
-│   │   └── 12_week1_summary.md         # Week 1 重点与难点复盘
+│   │   ├── 12_week1_summary.md         # Week 1 重点与难点复盘
+│   │   └── 13_app_metrics_red.md       # 应用指标埋点 + RED 监控（Week 2 Day 8）
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
@@ -134,7 +135,7 @@ perf-load-test-platform/
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
 │   │   └── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
 │   ├── monitoring/                  # 监控栈配置（Day 7）
-│   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + 自身
+│   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api(/metrics) + 自身
 │   │   └── grafana/
 │   │       ├── provisioning/         # 数据源 + 面板自动加载
 │   │       └── dashboards/k6-load-test.json # k6 压测实时面板
@@ -256,6 +257,24 @@ node_exporter（主机侧）──scrape──▶        │
 > **本机没有 Docker**，所以监控栈只能做到"配置就绪 + 语法校验"，端到端链路放在 CI 上验证。
 > 运行命令、面板设计、指标名映射、常见坑速查见 [`11_monitoring_observability.md`](perf/docs/11_monitoring_observability.md)。
 
+### Week 2 Day 8 应用指标埋点结论
+
+给被测服务（quality-pipeline-demo）补上**应用侧指标**，三层视图（压测侧 k6 + 主机侧 node_exporter + 应用侧 /metrics）凑齐：
+
+| 产出 | 说明 |
+|------|------|
+| `app/main.py`（quality-pipeline-demo） | 手写中间件埋点：Counter(`http_requests_total`) + Histogram(`http_request_duration_seconds`) + Gauge(`http_active_requests`)，暴露 `/metrics` |
+| [`prometheus.yml`](perf/monitoring/prometheus/prometheus.yml) | 打开 `demo-api` 采集 job（scrape_interval 5s） |
+| [`13_app_metrics_red.md`](perf/docs/13_app_metrics_red.md) | 四种指标类型 + Histogram/Summary 选型 + RED 方法 + 实现与验证 |
+
+覆盖 **RED 三要素**：Rate（`rate(http_requests_total[1m])`）、Errors（`status_code` 标签）、Duration（`histogram_quantile` + bucket）。
+比计划示例多做三个工程细节：**`/metrics` 自排除**（防自监控流量污染）、**Gauge 用 try/finally**（防异常时泄漏）、**path 用路由模板**（`/items/{item_id}`，防标签基数爆炸）。
+
+本地验证（5 类请求含故意 404）：计数、落桶、404 错误序列、Gauge 归零全部正确。
+端到端 scrape 验证同 Day 7，放在 CI。
+
+> 理解原理后实际项目可用 `prometheus-fastapi-instrumentator` 一键埋点——面试答原理，干活用库。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -264,3 +283,9 @@ node_exporter（主机侧）──scrape──▶        │
 - [x] Week 1 Day 4: 性能指标解读与分析
 - [x] Week 1 Day 5: 多场景压测脚本
 - [x] Week 1 Day 6-7: 基线建立 + 监控环境
+- [x] Week 2 Day 8: 应用指标埋点（Prometheus 指标 + RED 监控）
+- [ ] Week 2 Day 9: k6 结果接入 Grafana 可视化
+- [ ] Week 2 Day 10: 瓶颈定位方法论
+- [ ] Week 2 Day 11: CPU / 内存瓶颈分析实战
+- [ ] Week 2 Day 12: 性能优化实战
+- [ ] Week 2 Day 13-14: 优化对比 + 文档整理

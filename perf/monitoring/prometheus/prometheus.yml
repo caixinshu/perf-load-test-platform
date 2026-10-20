@@ -21,9 +21,10 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
-  # 被测服务 api 目前没有暴露 /metrics，故不配置抓取；
-  # 后续给 FastAPI 接入 prometheus-fastapi-instrumentator 后，打开下面的 job 即可：
-  # - job_name: demo-api
-  #   metrics_path: /metrics
-  #   static_configs:
-  #     - targets: ['api:8000']
+  # 被测服务 api（Week 2 Day 8 已埋点：手写中间件暴露 /metrics）
+  # 采集应用侧 RED 指标：http_requests_total / http_request_duration_seconds / http_active_requests
+  - job_name: demo-api
+    metrics_path: /metrics
+    scrape_interval: 5s   # 应用指标比主机指标采得密一些，压测时曲线更细腻（也不要太短，见 docs/13 坑 1）
+    static_configs:
+      - targets: ['api:8000']
