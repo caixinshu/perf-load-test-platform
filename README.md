@@ -125,7 +125,9 @@ perf-load-test-platform/
 │   │   ├── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
 │   │   ├── 12_week1_summary.md         # Week 1 重点与难点复盘
 │   │   ├── 13_app_metrics_red.md       # 应用指标埋点 + RED 监控（Week 2 Day 8）
-│   │   └── 14_k6_results_grafana.md    # k6 结果接 Grafana + Pushgateway（Week 2 Day 9）
+│   │   ├── 14_k6_results_grafana.md    # k6 结果接 Grafana + Pushgateway（Week 2 Day 9）
+│   │   ├── 15_bottleneck_methodology.md # 瓶颈定位方法论（Week 2 Day 10）
+│   │   └── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
@@ -310,6 +312,23 @@ Day 7 解决「压测**过程中**看得见」，Day 9 解决「压测**结束�
 > 本机无 Docker：解析（真实 + 合成 summary）、`--dry-run`、假 Pushgateway 的 PUT 均已实测；
 > 端到端 scrape 与看板渲染放在 CI 的 `k6-load-test-prometheus` job（已加 `if: always()` 推送与入库校验）。
 
+### Week 2 Day 10 瓶颈定位方法论结论
+
+Day 10 是 Week 2 的**骨架日**——Day 7~9 把监控栈搭好、应用指标埋好、看板画好，今天用一套方法论把这些散点串成可执行的分析流程：
+
+| 产出 | 说明 |
+|------|------|
+| [`15_bottleneck_methodology.md`](perf/docs/15_bottleneck_methodology.md) | 核心方法论文档：USE 方法表（5 资源 × 3 维度，贴 PromQL + Grafana 面板位置）、自顶向下 5 层走查（Day 4 SQLite 软瓶颈完整案例）、Python 生态工具清单 |
+| [`PERF_ANALYSIS_REPORT_TEMPLATE.md`](perf/docs/PERF_ANALYSIS_REPORT_TEMPLATE.md) | 空白报告模板；文档内嵌了**已用 Day 4 真实数据填充的完整报告**作为范例 |
+
+几个关键认识：
+
+- **USE/RED 分工**：RED 看服务（"哪个服务慢"），USE 看资源（"哪个资源不够"）。定位瓶颈时用 RED 发现问题，用 USE 锁定资源类型。
+- **最快的排查捷径**：**"所有物理资源都不高但慢" = 直接跳到第 4/5 层查代码和依赖**。Day 4 的 SQLite 软瓶颈就是这么定位到的——CPU 60%、内存 45%、iowait 5%，所有物理信号都排除了，直接扎进代码看锁。
+- **监控栈早就在那里**：Day 7 搭 node_exporter 时跑过 `USE` 的 Utilization 指标，Day 8 埋 `/metrics` 时跑过 RED 的 Duration 指标——方法论只是给这些已有的指标加了"怎么读"的说明书。
+
+> 与 Week 1 已有文档的分工：`05_bottlenecks.md` 讲"有什么瓶颈"，`08_performance_analysis.md` 讲"怎么读压测报告"，今天这份讲"怎么定位"。三份合起来就是一套完整的定位→分析→决策闭环。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -320,7 +339,7 @@ Day 7 解决「压测**过程中**看得见」，Day 9 解决「压测**结束�
 - [x] Week 1 Day 6-7: 基线建立 + 监控环境
 - [x] Week 2 Day 8: 应用指标埋点（Prometheus 指标 + RED 监控）
 - [x] Week 2 Day 9: k6 结果接入 Grafana 可视化
-- [ ] Week 2 Day 10: 瓶颈定位方法论
+- [x] Week 2 Day 10: 瓶颈定位方法论
 - [ ] Week 2 Day 11: CPU / 内存瓶颈分析实战
 - [ ] Week 2 Day 12: 性能优化实战
 - [ ] Week 2 Day 13-14: 优化对比 + 文档整理
