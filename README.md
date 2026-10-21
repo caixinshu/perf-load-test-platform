@@ -124,7 +124,8 @@ perf-load-test-platform/
 │   │   ├── 10_baseline_and_gating.md   # 基线建立与性能门禁（受控测量 + 门禁推导）
 │   │   ├── 11_monitoring_observability.md # 监控与可观测性（Prometheus + Grafana）
 │   │   ├── 12_week1_summary.md         # Week 1 重点与难点复盘
-│   │   └── 13_app_metrics_red.md       # 应用指标埋点 + RED 监控（Week 2 Day 8）
+│   │   ├── 13_app_metrics_red.md       # 应用指标埋点 + RED 监控（Week 2 Day 8）
+│   │   └── 14_k6_results_grafana.md    # k6 结果接 Grafana + Pushgateway（Week 2 Day 9）
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
@@ -134,13 +135,17 @@ perf-load-test-platform/
 │   │   ├── 04-spike-test.js          # 尖峰测试（10→200 VU 突增回落）
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
 │   │   └── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
-│   ├── monitoring/                  # 监控栈配置（Day 7）
-│   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api(/metrics) + 自身
+│   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
+│   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
 │   │       ├── provisioning/         # 数据源 + 面板自动加载
-│   │       └── dashboards/k6-load-test.json # k6 压测实时面板
+│   │       └── dashboards/
+│   │           ├── k6-load-test.json        # k6 压测实时面板（Day 7）
+│   │           └── k6-load-test-result.json # k6 压测结果看板（Day 9）
 │   ├── results/                     # 压测结果（gitignore）
 │   └── data/                        # 测试数据
+├── scripts/
+│   └── push_k6_metrics.py           # k6 summary-export → Pushgateway（Day 9）
 ├── docker-compose.yml               # 环境编排
 ├── .gitignore
 └── README.md
@@ -154,7 +159,7 @@ perf-load-test-platform/
 |-----|------|------|----------|----------------|
 | `k6-smoke-test` | `01-simple-get.js` | 10 VU / 30s | push、PR | ✅ 是（门禁 p95<100ms） |
 | `k6-load-test` | `02-load-test.js` | 20 VU / 3min | 定时、手动 | ✅ 是（Day 6 转正，门禁 p95<1.6s） |
-| `k6-load-test-prometheus` | `01-simple-get.js` + remote write | 10 VU / 30s | 仅手动 | ❌ 否（Day 7 灰度接入） |
+| `k6-load-test-prometheus` | `01-simple-get.js` + remote write + summary→Pushgateway | 10 VU / 30s | 仅手动 | ❌ 否（Day 7 灰度接入，Day 9 加结果推送） |
 
 **门禁值必须来自实测基线**：`门禁 = 基线 × 1.5`。
 Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次），得到基线 p95 = **26ms**（冒烟）/ **1.02s**（负载），
@@ -275,6 +280,36 @@ node_exporter（主机侧）──scrape──▶        │
 
 > 理解原理后实际项目可用 `prometheus-fastapi-instrumentator` 一键埋点——面试答原理，干活用库。
 
+### Week 2 Day 9 k6 结果接入 Grafana 结论
+
+Day 7 解决「压测**过程中**看得见」，Day 9 解决「压测**结束后**留得下、比得了」——两条链路互补：
+
+```
+压测中   k6 ──remote write───────────▶ Prometheus ──▶ 实时趋势面板（Day 7）
+压测后   k6 ──summary-export──▶ 脚本 ──PUT──▶ Pushgateway ──scrape──▶ Prometheus ──▶ 结果看板（Day 9）
+```
+
+| 产出 | 说明 |
+|------|------|
+| [`scripts/push_k6_metrics.py`](scripts/push_k6_metrics.py) | 解析 `--summary-export`，把 P95/P99/TPS/失败率/checks 等 10 项推成 `k6_test_*` Gauge；`--dry-run` 可离线自检 |
+| [`docker-compose.yml`](docker-compose.yml) | 新增 `pushgateway` 服务（持久化 + 管理 API 清理批次） |
+| [`prometheus.yml`](perf/monitoring/prometheus/prometheus.yml) | 新增 `pushgateway` 采集 job，`honor_labels: true` 保住 `script` / `run_id` 标签 |
+| [`k6-load-test-result.json`](perf/monitoring/grafana/dashboards/k6-load-test-result.json) | 压测结果看板：核心卡片（P95/P99/TPS/失败率）+ 响应时间/TPS/CPU/内存趋势 + 分布 Heatmap + 错误率 Gauge + Pushgateway 最近结果 |
+| [`14_k6_results_grafana.md`](perf/docs/14_k6_results_grafana.md) | 输出方式对比 + push/pull 机制 + Pushgateway 三大坑 + 面板 PromQL + 常见坑速查 |
+
+几个关键判断：
+
+- **summary-export 是主选**：几百 KB、结构化、天然适合归档与推送；`--out json` 是逐请求明细，
+  动辄几百 MB，只在排障时开。
+- **缺失值不造假**：`p(99)` 默认不导出，脚本跳过而不是推 0，避免看板出现"P99=0ms 极快"的假象。
+- **不依赖 summary 的 `thresholds` 字段**：实测出现过 `p(95)<100` 显示 `true` 而实际 p95=536ms，
+  门禁仍以 k6 退出码为准。
+- **Pushgateway 是覆盖语义**：默认只留每个 `script` 的最近一次；要历史才传 `--run-id`，
+  并定期 `wipe`。它替代不了趋势库，趋势仍归 remote write。
+
+> 本机无 Docker：解析（真实 + 合成 summary）、`--dry-run`、假 Pushgateway 的 PUT 均已实测；
+> 端到端 scrape 与看板渲染放在 CI 的 `k6-load-test-prometheus` job（已加 `if: always()` 推送与入库校验）。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -284,7 +319,7 @@ node_exporter（主机侧）──scrape──▶        │
 - [x] Week 1 Day 5: 多场景压测脚本
 - [x] Week 1 Day 6-7: 基线建立 + 监控环境
 - [x] Week 2 Day 8: 应用指标埋点（Prometheus 指标 + RED 监控）
-- [ ] Week 2 Day 9: k6 结果接入 Grafana 可视化
+- [x] Week 2 Day 9: k6 结果接入 Grafana 可视化
 - [ ] Week 2 Day 10: 瓶颈定位方法论
 - [ ] Week 2 Day 11: CPU / 内存瓶颈分析实战
 - [ ] Week 2 Day 12: 性能优化实战

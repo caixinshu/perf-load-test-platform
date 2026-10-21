@@ -51,6 +51,26 @@ services:
   # 监控栈（Day 7）：Prometheus + Grafana + node_exporter
   # 独立 monitoring profile，不影响上面两条既有流程，按需启动
   # ---------------------------------------------------------------------------
+
+  # Pushgateway（Day 9）：接收 k6 压测结束后推送的 summary 结果
+  # 短生命周期任务（k6 只活 30s~3min）不适合被 Prometheus 抓取，
+  # 由 scripts/push_k6_metrics.py 把结果推进这里，Prometheus 再从 9091 抓走。
+  pushgateway:
+    image: prom/pushgateway:v1.9.0
+    profiles: ["monitoring"]
+    ports:
+      - "9091:9091"
+    command:
+      # 持久化，避免容器重启后丢掉上一轮压测结果
+      - --persistence.file=/data/pushgateway.data
+      - --persistence.interval=5m
+      # 打开管理 API，便于清理历史批次：
+      #   curl -X DELETE http://localhost:9091/api/v1/admin/wipe
+      - --web.enable-admin-api
+    volumes:
+      - pushgateway_data:/data
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v2.54.1
     profiles: ["monitoring"]
@@ -105,3 +125,4 @@ volumes:
   api_data:
   prometheus_data:
   grafana_data:
+  pushgateway_data:

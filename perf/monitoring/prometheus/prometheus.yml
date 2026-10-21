@@ -21,6 +21,14 @@ scrape_configs:
     static_configs:
       - targets: ['node-exporter:9100']
 
+  # Pushgateway（Day 9）：k6 压测结束后由 scripts/push_k6_metrics.py 推送的 summary 结果
+  # honor_labels: true 必须加——否则 push 时打的 script / run_id / environment
+  # 会被 Prometheus 自身的 job / instance 标签覆盖，看板就没法按脚本/批次过滤了。
+  - job_name: pushgateway
+    honor_labels: true
+    static_configs:
+      - targets: ['pushgateway:9091']
+
   # 被测服务 api（Week 2 Day 8 已埋点：手写中间件暴露 /metrics）
   # 采集应用侧 RED 指标：http_requests_total / http_request_duration_seconds / http_active_requests
   - job_name: demo-api

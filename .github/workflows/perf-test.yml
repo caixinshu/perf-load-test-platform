@@ -196,6 +196,8 @@ jobs:
           sudo apt-get install -y k6
           k6 version
 
+      # --summary-trend-stats 显式要 p(99)：k6 默认只导出 p(90)/p(95)，
+      # 不写这一行，Pushgateway 里就永远没有 P99（脚本会跳过缺失值，不会造假 0）
       - name: Run k6 with Prometheus remote write
         run: |
           mkdir -p perf/results
@@ -204,12 +206,32 @@ jobs:
           K6_PROMETHEUS_RW_STALE_MARKERS=true \
           K6_PROMETHEUS_RW_LABELS="environment=ci,runner=github-actions" \
           k6 run -o experimental-prometheus-rw perf/scripts/01-simple-get.js \
+            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=perf/results/rw-summary.json
+
+      # 【Day 9】把 summary 结果推进 Pushgateway，Prometheus 再抓走。
+      # if: always() 是这条链路的关键：压测阈值不过时 k6 退出码非 0，
+      # 但结果仍要留档——否则"失败的那一轮"在监控里反而消失了。
+      - name: Install push script dependencies
+        run: pip install prometheus-client
+
+      - name: Push k6 summary to Pushgateway
+        if: always()
+        run: |
+          if [ ! -f perf/results/rw-summary.json ]; then
+            echo "::warning::rw-summary.json 不存在，跳过推送"
+            exit 0
+          fi
+          # 不带 --run-id：同脚本结果覆盖上一轮，看板始终显示最近一次
+          python scripts/push_k6_metrics.py perf/results/rw-summary.json \
+            --pushgateway-url http://localhost:9091 \
+            --script 01-simple-get \
+            --environment ci
 
       # 断言"指标真的进了 Prometheus"，否则链路只是"看起来跑通了"
       - name: Verify k6 metrics reached Prometheus
         run: |
-          echo "--- k6_http_reqs_total ---"
+          echo "--- k6_http_reqs_total (remote write) ---"
           curl -sfG http://localhost:9090/api/v1/query \
             --data-urlencode 'query=count(k6_http_reqs_total)' | head -c 1000
           echo ""
@@ -217,9 +239,27 @@ jobs:
           curl -sfG http://localhost:9090/api/v1/query \
             --data-urlencode 'query=count(k6_http_req_duration_seconds)' | head -c 1000
           echo ""
-          echo "--- k6_http_req_failed_rate ---"
+          echo "--- k6_http_req_failed_rate (remote write) ---"
           curl -sfG http://localhost:9090/api/v1/query \
             --data-urlencode 'query=count(k6_http_req_failed_rate)' | head -c 1000
+
+      # Pushgateway 走的是常规 scrape（15s 一次），要等至少一个周期才有数据
+      - name: Verify summary metrics reached Prometheus (Pushgateway)
+        if: always()
+        run: |
+          for i in {1..12}; do
+            count=$(curl -sG http://localhost:9090/api/v1/query \
+              --data-urlencode 'query=count(k6_test_http_req_duration_p95_seconds)' \
+              | python3 -c "import sys,json; r=json.load(sys.stdin)['data']['result']; print(r[0]['value'][1] if r else 0)")
+            echo "等待 Pushgateway 指标入库... ($i) count=${count}"
+            if [ "$count" != "0" ] && [ -n "$count" ]; then
+              echo "::notice::k6_test_* 指标已入库（count=${count}）"
+              break
+            fi
+            sleep 5
+          done
+          curl -sG http://localhost:9090/api/v1/query \
+            --data-urlencode 'query=k6_test_http_req_duration_p95_seconds{job="k6_loadtest"}' | head -c 1000
 
       - name: Upload results
         uses: actions/upload-artifact@v4
