@@ -127,7 +127,9 @@ perf-load-test-platform/
 │   │   ├── 13_app_metrics_red.md       # 应用指标埋点 + RED 监控（Week 2 Day 8）
 │   │   ├── 14_k6_results_grafana.md    # k6 结果接 Grafana + Pushgateway（Week 2 Day 9）
 │   │   ├── 15_bottleneck_methodology.md # 瓶颈定位方法论（Week 2 Day 10）
-│   │   └── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
+│   │   ├── 16_cpu_memory_bottleneck_practice.md # CPU/内存瓶颈分析实战（Week 2 Day 11）
+│   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
+│   │   └── images/                     # 文档配图（火焰图 SVG、mprof 趋势图、采样数据）
 │   ├── scripts/                     # k6 压测脚本
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
@@ -136,7 +138,9 @@ perf-load-test-platform/
 │   │   ├── 03-smoke-test.js          # 冒烟测试（per-vu-iterations）
 │   │   ├── 04-spike-test.js          # 尖峰测试（10→200 VU 突增回落）
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
-│   │   └── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
+│   │   ├── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
+│   │   ├── 07-cpu-stress.js          # CPU 瓶颈制造（50 VU 压 /slow/cpu，Day 11）
+│   │   └── 08-memory-leak.js         # 内存泄漏制造（20 VU 压 /slow/memory，Day 11）
 │   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
 │   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
@@ -329,6 +333,26 @@ Day 10 是 Week 2 的**骨架日**——Day 7~9 把监控栈搭好、应用指�
 
 > 与 Week 1 已有文档的分工：`05_bottlenecks.md` 讲"有什么瓶颈"，`08_performance_analysis.md` 讲"怎么读压测报告"，今天这份讲"怎么定位"。三份合起来就是一套完整的定位→分析→决策闭环。
 
+### Week 2 Day 11 CPU / 内存瓶颈分析实战结论
+
+给被测服务植入两个「病接口」当靶子，把 Day 10 方法论完整跑了一遍——**RED 发现慢 → USE 锁资源 → 采样工具锁代码行 → 对照实验排除假设**：
+
+| 产出 | 说明 |
+|------|------|
+| `app/main.py`（quality-pipeline-demo） | 新增 `/slow/cpu`（sha256 循环）+ `/slow/memory`（全局列表泄漏）+ `/slow/memory/clear`，`@profile` 无内存分析器时优雅降级 |
+| [`07-cpu-stress.js`](perf/scripts/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/08-memory-leak.js) | constant-vus 持续施压，故意不设 thresholds（制造瓶颈，非门禁） |
+| [`16_cpu_memory_bottleneck_practice.md`](perf/docs/16_cpu_memory_bottleneck_practice.md) | CPU + 内存两份完整分析记录（现象 → 数据 → 工具 → 热点行 → 结论） |
+| [`images/`](perf/docs/images/) | py-spy 火焰图 SVG + mprof 趋势图 PNG + 原始采样数据 |
+
+**CPU 实战**：50 VU 压 `/slow/cpu`，TPS 封顶 1.555/s、avg 16.84s、错误率 0%——三特征齐（TPS 不随并发涨、响应随并发线性恶化、无错误）。
+py-spy 火焰图一柱擎天：`slow_cpu (main.py:175)` 占 **98.86%** 样本，根因是 hashlib 小数据**不释放 GIL**，50 线程抢一把锁等于单核串行。
+实测坑：py-spy 挂接期间请求全部 60s 超时——**采样分析器有观察者效应，基线/门禁测量时严禁挂分析器**。
+
+**内存实战**：20 VU 压 `/slow/memory`，RSS 48.9 → 1678.9 MB 线性上涨（与 16651 请求 × 100KB 账面对平），
+memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.965MiB/20 次），
+`/clear` 后 RSS 回落至 53.2 MB——证明是**缓存无淘汰**而非 C 层真泄漏，Day 12 优化方向定为 LRU/容量上限。
+实测坑：**mprof attach 在 Windows 超时不生效**，改用 `mprof run` 拉起进程才落盘。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -340,6 +364,6 @@ Day 10 是 Week 2 的**骨架日**——Day 7~9 把监控栈搭好、应用指�
 - [x] Week 2 Day 8: 应用指标埋点（Prometheus 指标 + RED 监控）
 - [x] Week 2 Day 9: k6 结果接入 Grafana 可视化
 - [x] Week 2 Day 10: 瓶颈定位方法论
-- [ ] Week 2 Day 11: CPU / 内存瓶颈分析实战
+- [x] Week 2 Day 11: CPU / 内存瓶颈分析实战
 - [ ] Week 2 Day 12: 性能优化实战
 - [ ] Week 2 Day 13-14: 优化对比 + 文档整理
