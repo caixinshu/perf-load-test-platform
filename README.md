@@ -130,8 +130,13 @@ perf-load-test-platform/
 │   │   ├── 16_cpu_memory_bottleneck_practice.md # CPU/内存瓶颈分析实战（Week 2 Day 11）
 │   │   ├── 17_performance_optimization_practice.md # 性能优化实战 A/B 对比（Week 2 Day 12）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
+│   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
+│   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
 │   │   └── images/                     # 文档配图（火焰图 SVG、mprof 趋势图、采样数据）
 │   ├── scripts/                     # k6 压测脚本
+│   │   ├── config.js                  # 公共配置（BASE_URL / 默认参数 / 辅助函数）
+│   │   ├── README.md                  # 脚本库说明 + 运行方式
+│   │   ├── run.ps1                    # PowerShell 一键压测（smoke/load/cpu-opt 等场景）
 │   │   ├── 01-simple-get.js          # 第一个压测脚本（冒烟，带性能门禁）
 │   │   ├── 02-load-test.js           # 完整负载测试（多接口 + 参数化 + 标签 + 门禁）
 │   │   ├── baseline.js               # 基准测试（10 VU，建基线）
@@ -140,18 +145,20 @@ perf-load-test-platform/
 │   │   ├── 04-spike-test.js          # 尖峰测试（10→200 VU 突增回落）
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
 │   │   ├── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
-│   │   ├── 07-cpu-stress.js          # CPU 瓶颈制造（50 VU 压 /slow/cpu，Day 11）
-│   │   └── 08-memory-leak.js         # 内存泄漏制造（20 VU 压 /slow/memory，Day 11）
+│   │   ├── 07-cpu-stress.js          # CPU 瓶颈制造 + A/B（Week 2 Day 11/12/13）
+│   │   └── 08-memory-leak.js         # 内存泄漏制造 + A/B（Week 2 Day 11/12/13）
 │   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
 │   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
 │   │       ├── provisioning/         # 数据源 + 面板自动加载
 │   │       └── dashboards/
 │   │           ├── k6-load-test.json        # k6 压测实时面板（Day 7）
-│   │           └── k6-load-test-result.json # k6 压测结果看板（Day 9）
+│   │           ├── k6-load-test-result.json # k6 压测结果看板（Day 9）
+│   │           └── app-metrics.json         # 应用指标看板 · RED 三要素（Day 13）
 │   ├── results/                     # 压测结果（gitignore）
 │   └── data/                        # 测试数据
-├── scripts/
+├── TROUBLESHOOTING.md              # 性能测试踩坑记录（Day 13-14 整理）
+├── scripts/                        # 顶层辅助脚本
 │   └── push_k6_metrics.py           # k6 summary-export → Pushgateway（Day 9）
 ├── docker-compose.yml               # 环境编排
 ├── .gitignore
@@ -368,6 +375,34 @@ memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.9
 
 **内存优化 A/B（20 VU/60s）**：有界缓存 RSS +98.4MB 触顶即停（vs 泄漏 +1630MB 线性无顶），用完即放 +0.1MB 完全平坦；内存修复还带来 TPS 138→246/s（+78%）的吞吐红利——**内存问题从来不只是内存问题**。
 
+### Week 2 Day 13-14 优化对比 + 文档整理结论
+
+Day 12 已经跑过 A/B 数据，Day 13-14 把这些散点收束成**正式报告 + 脚本库 + 看板 + 踩坑记录**，完成 Week 2 闭环：
+
+| 产出 | 说明 |
+|------|------|
+| [`20261023-week2-full-report.md`](perf/docs/reports/20261023-week2-full-report.md) | **正式性能测试报告**（8 章节）：测试背景 → 环境 → 结果摘要 → 瓶颈定位 → 优化方案 → 完整对比 → 优化建议 → 风险。本轮新跑 50 VU/1min CPU + 20 VU/2min 内存长时 A/B，数据更完整 |
+| [`perf/scripts/config.js`](perf/scripts/config.js) | 公共配置：`CONFIG` 默认值 + `envOr` 辅助函数 + `constantVus` 快捷构造 |
+| [`perf/scripts/README.md`](perf/scripts/README.md) | 脚本库完整说明：10 个脚本清单 + Week 1/2 分工 + 运行命令 + 输出方式 |
+| [`perf/scripts/run.ps1`](perf/scripts/run.ps1) | PowerShell 一键压测：`.\\run.ps1 cpu-opt cache` / `.\\run.ps1 mem leak`，自动 summary-export 到 `perf/results/` |
+| [`app-metrics.json`](perf/monitoring/grafana/dashboards/app-metrics.json) | **应用指标看板**（RED 三要素）：Rate / Errors / Duration(p50+p95) / Active Requests / 累计请求 / 5xx。Provisioning 自动加载，与 k6 结果看板分工 |
+| [`TROUBLESHOOTING.md`](TROUBLESHOOTING.md) | 踩坑记录 6 大类 15 条：k6 / py-spy / mprof / Python / 方法论 / CI。每条含现象 → 原因 → 解决 → 预防 |
+
+**本轮完整 A/B 数据（50 VU / 60s CPU）**：
+
+| 方案 | TPS | p95 | TPS 相对基线 |
+|------|-----|-----|------------|
+| baseline | 4.16/s | 19,001 ms | 1× |
+| cache | 212.22/s | 449 ms | **51×** |
+| parallel | 4.75/s | 21,318 ms | 1.14× |
+
+**本周踩坑 Top 3**（详看 TROUBLESHOOTING.md）：
+1. **py-spy attach 有观察者效应**——50 并发采样直接让所有请求 60s 超时，生产只能低采样率或用 run 模式
+2. **进程池冷启动 15.6s**——Windows spawn 4 个子进程各自 import fastapi，必须模块级单例常驻预热
+3. **mprof attach 在 Windows 不生效**——必须 `mprof run` 拉起进程
+
+Week 2 验收总分（自评）：应用指标 20 + 可视化 20 + 瓶颈定位 28 + 性能优化 20 + 文档 10 = **98 分**（满分 100）。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -381,4 +416,4 @@ memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.9
 - [x] Week 2 Day 10: 瓶颈定位方法论
 - [x] Week 2 Day 11: CPU / 内存瓶颈分析实战
 - [x] Week 2 Day 12: 性能优化实战
-- [ ] Week 2 Day 13-14: 优化对比 + 文档整理
+- [x] Week 2 Day 13-14: 优化对比 + 文档整理
