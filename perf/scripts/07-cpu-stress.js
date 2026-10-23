@@ -21,22 +21,25 @@ import { check } from 'k6';
 export const options = {
   scenarios: {
     cpu_stress: {
-      // constant-vus：固定 50 个 VU 跑 1 分钟，保证 CPU 持续饱和
+      // constant-vus：固定 VU 数持续施压，保证 CPU 持续饱和
+      // VUS / DURATION 可用环境变量覆盖，便于 Day 12 缩短 A/B 轮次
       executor: 'constant-vus',
-      vus: 50,
-      duration: '1m',
+      vus: Number(__ENV.VUS || 50),
+      duration: __ENV.DURATION || '1m',
     },
   },
   // 不设 thresholds：这是瓶颈制造脚本，不是门禁脚本
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+// Day 12 A/B：用 TARGET_PATH 指向优化版接口（如 /slow/cpu/opt/cache?rounds=100）
+const TARGET_PATH = __ENV.TARGET_PATH || '/slow/cpu?rounds=100';
 
 export default function () {
   // rounds=100 → 10 万次 sha256，单次请求约几十~上百 ms
-  const res = http.get(`${BASE_URL}/slow/cpu?rounds=100`, {
+  const res = http.get(`${BASE_URL}${TARGET_PATH}`, {
     tags: { name: 'slowCpu' },
   });
-  check(res, { 'slow/cpu 返回 200': (r) => r.status === 200 });
+  check(res, { '目标接口返回 200': (r) => r.status === 200 });
   // 不 sleep：让 VU 无缝衔接请求，尽快把 CPU 压满
 }

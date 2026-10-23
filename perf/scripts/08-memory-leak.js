@@ -20,31 +20,25 @@ import { check } from 'k6';
 export const options = {
   scenarios: {
     memory_leak: {
-      // constant-vus：固定 20 个 VU 跑 2 分钟，让泄漏量足够明显
+      // constant-vus：固定 VU 数持续施压，让泄漏量足够明显
+      // VUS / DURATION 可用环境变量覆盖，便于 Day 12 缩短 A/B 轮次
       executor: 'constant-vus',
-      vus: 20,
-      duration: '2m',
+      vus: Number(__ENV.VUS || 20),
+      duration: __ENV.DURATION || '2m',
     },
   },
   // 不设 thresholds：这是瓶颈制造脚本，不是门禁脚本
 };
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8000';
+// Day 12 A/B：用 TARGET_PATH 指向优化版接口（如 /slow/memory/opt/bounded?size_kb=100）
+const TARGET_PATH = __ENV.TARGET_PATH || '/slow/memory?size_kb=100';
 
 export default function () {
   // size_kb=100 → 每请求泄漏 100KB；20 VU × 2min 预计泄漏数百 MB
-  const res = http.get(`${BASE_URL}/slow/memory?size_kb=100`, {
+  const res = http.get(`${BASE_URL}${TARGET_PATH}`, {
     tags: { name: 'slowMemory' },
   });
-  check(res, {
-    'slow/memory 返回 200': (r) => r.status === 200,
-    '泄漏量单调上涨': (r) => {
-      try {
-        return JSON.parse(r.body).cache_mb > 0;
-      } catch (e) {
-        return false;
-      }
-    },
-  });
+  check(res, { '目标接口返回 200': (r) => r.status === 200 });
   // 不 sleep：泄漏越快，趋势越明显
 }

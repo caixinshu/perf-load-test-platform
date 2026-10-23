@@ -128,6 +128,7 @@ perf-load-test-platform/
 │   │   ├── 14_k6_results_grafana.md    # k6 结果接 Grafana + Pushgateway（Week 2 Day 9）
 │   │   ├── 15_bottleneck_methodology.md # 瓶颈定位方法论（Week 2 Day 10）
 │   │   ├── 16_cpu_memory_bottleneck_practice.md # CPU/内存瓶颈分析实战（Week 2 Day 11）
+│   │   ├── 17_performance_optimization_practice.md # 性能优化实战 A/B 对比（Week 2 Day 12）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   └── images/                     # 文档配图（火焰图 SVG、mprof 趋势图、采样数据）
 │   ├── scripts/                     # k6 压测脚本
@@ -353,6 +354,20 @@ memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.9
 `/clear` 后 RSS 回落至 53.2 MB——证明是**缓存无淘汰**而非 C 层真泄漏，Day 12 优化方向定为 LRU/容量上限。
 实测坑：**mprof attach 在 Windows 超时不生效**，改用 `mprof run` 拉起进程才落盘。
 
+### Week 2 Day 12 性能优化实战结论
+
+针对 Day 11 的两个靶子按「不做 > 少做 > 做得更快 > 并行做」优先级实施优化，用与基线完全相同的压测参数 A/B 验证——**黄金法则被实测数据证实**：
+
+| 产出 | 说明 |
+|------|------|
+| `app/main.py`（quality-pipeline-demo） | 新增 5 个优化接口：`/slow/cpu/opt/{cache,blake2,parallel}` + `/slow/memory/opt/{bounded,release}` |
+| [`07-cpu-stress.js`](perf/scripts/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/08-memory-leak.js) | 参数化改造：`VUS` / `DURATION` / `TARGET_PATH` 环境变量，同一脚本压所有优化变体 |
+| [`17_performance_optimization_practice.md`](perf/docs/17_performance_optimization_practice.md) | CPU 4 方案 + 内存 3 方案 A/B 数据、DB/应用层优化清单、优化验证报告 |
+
+**CPU 优化 A/B（50 VU）**：缓存 **158×** >> 减少计算 18.3× >> 进程池并行 4.6× ≈ blake2b 4.1×——「少做」碾压一切工程手段；并行用 ProcessPoolExecutor 绕 GIL（Day 11 已证线程池无效），实测坑：**进程池冷启动 15.6s**，必须常驻预热。
+
+**内存优化 A/B（20 VU/60s）**：有界缓存 RSS +98.4MB 触顶即停（vs 泄漏 +1630MB 线性无顶），用完即放 +0.1MB 完全平坦；内存修复还带来 TPS 138→246/s（+78%）的吞吐红利——**内存问题从来不只是内存问题**。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -365,5 +380,5 @@ memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.9
 - [x] Week 2 Day 9: k6 结果接入 Grafana 可视化
 - [x] Week 2 Day 10: 瓶颈定位方法论
 - [x] Week 2 Day 11: CPU / 内存瓶颈分析实战
-- [ ] Week 2 Day 12: 性能优化实战
+- [x] Week 2 Day 12: 性能优化实战
 - [ ] Week 2 Day 13-14: 优化对比 + 文档整理
