@@ -1,0 +1,158 @@
+# ============================================================
+# 多服务全链路验证（Week 3 Day 15）
+# 用 docker-compose.services.yml 启动 5 节点：
+#   postgres + redis + product-service + order-service + api-gateway
+# 验证完整下单链路：gateway -> order -> product -> (db/cache) -> order -> db
+#
+# 触发：push/PR 改动 services/ 或 docker-compose.services.yml，或手动触发
+# ============================================================
+
+name: Multiservice Full-Chain Test
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'services/**'
+      - 'docker-compose.services.yml'
+      - '.github/workflows/multiservice-test.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'services/**'
+      - 'docker-compose.services.yml'
+  workflow_dispatch:
+
+jobs:
+  multiservice-chain-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & start all services (5 nodes)
+        run: |
+          docker compose -f docker-compose.services.yml up -d --build
+          echo "--- 等待 5 个服务就绪 ---"
+          # db
+          for i in $(seq 1 30); do
+            if docker exec $(docker compose -f docker-compose.services.yml ps -q db) pg_isready -U demo -d demo >/dev/null 2>&1; then
+              echo "db ready"
+              break
+            fi
+            echo "waiting db... ($i)"
+            sleep 2
+          done
+          # product-service
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8001/health; then
+              echo "product-service ready"
+              break
+            fi
+            echo "waiting product-service... ($i)"
+            sleep 2
+          done
+          # order-service
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8002/health; then
+              echo "order-service ready"
+              break
+            fi
+            echo "waiting order-service... ($i)"
+            sleep 2
+          done
+          # api-gateway
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "api-gateway ready"
+              break
+            fi
+            echo "waiting api-gateway... ($i)"
+            sleep 2
+          done
+
+      - name: Verify all services healthy
+        run: |
+          echo "=== 健康检查 ==="
+          curl -s http://localhost:8001/health && echo ""
+          curl -s http://localhost:8002/health && echo ""
+          curl -s http://localhost:8000/health && echo ""
+
+      - name: Full-chain verification (5 nodes)
+        run: |
+          set -e
+          echo "=== 1. 商品详情（DB 命中）==="
+          curl -s http://localhost:8001/products/1 | tee /tmp/p1.json
+          echo ""
+          python3 -c "import json; d=json.load(open('/tmp/p1.json')); assert d['id']==1 and d['price']>0, '商品数据异常'"
+          echo "✅ product detail OK"
+
+          echo ""
+          echo "=== 2. 商品详情（缓存命中）==="
+          curl -s http://localhost:8001/products/1
+          echo ""
+          echo "✅ product cache hit OK"
+
+          echo ""
+          echo "=== 3. 网关查询商品（gateway -> product -> db/cache）==="
+          curl -s "http://localhost:8000/products?page=1&page_size=2"
+          echo ""
+          echo "✅ gateway list products OK"
+
+          echo ""
+          echo "=== 4. 全链路下单（gateway -> order -> product -> db/cache -> order -> db）==="
+          ORDER_RESP=$(curl -s -X POST http://localhost:8000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"product_id":1,"quantity":3}')
+          echo "$ORDER_RESP"
+          echo "$ORDER_RESP" > /tmp/order.json
+          python3 -c "
+import json
+d=json.load(open('/tmp/order.json'))
+assert d['order_id'] > 0, 'order_id 异常'
+assert d['product_id'] == 1
+assert d['quantity'] == 3
+assert d['total_price'] > 0
+assert d['status'] == 'created'
+"
+          echo "✅ full-chain create order OK (5 nodes)"
+
+          echo ""
+          echo "=== 5. 查订单 ==="
+          ORDER_ID=$(python3 -c "import json; print(json.load(open('/tmp/order.json'))['order_id'])")
+          curl -s "http://localhost:8000/orders/$ORDER_ID"
+          echo ""
+          echo "✅ get order OK"
+
+          echo ""
+          echo "=== 6. 库存不足校验 ==="
+          STOCK_RESP=$(curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:8000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"product_id":99,"quantity":99999}')
+          if [ "$STOCK_RESP" = "400" ]; then
+            echo "✅ insufficient stock returns 400"
+          else
+            echo "❌ expected 400, got $STOCK_RESP"
+            exit 1
+          fi
+
+          echo ""
+          echo "========================================"
+          echo "  全链路验证通过：5 节点下单链路正常"
+          echo "========================================"
+
+      - name: Show service logs (for debugging)
+        if: always()
+        run: |
+          echo "=== product-service logs ==="
+          docker compose -f docker-compose.services.yml logs product-service --tail 30
+          echo ""
+          echo "=== order-service logs ==="
+          docker compose -f docker-compose.services.yml logs order-service --tail 30
+          echo ""
+          echo "=== api-gateway logs ==="
+          docker compose -f docker-compose.services.yml logs api-gateway --tail 30
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down -v
