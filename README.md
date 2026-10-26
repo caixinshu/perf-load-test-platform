@@ -129,6 +129,7 @@ perf-load-test-platform/
 │   │   ├── 15_bottleneck_methodology.md # 瓶颈定位方法论（Week 2 Day 10）
 │   │   ├── 16_cpu_memory_bottleneck_practice.md # CPU/内存瓶颈分析实战（Week 2 Day 11）
 │   │   ├── 17_performance_optimization_practice.md # 性能优化实战 A/B 对比（Week 2 Day 12）
+│   │   ├── 18_multiservice_setup.md       # 多服务全链路场景搭建（Week 3 Day 15）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
 │   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
@@ -160,7 +161,14 @@ perf-load-test-platform/
 ├── TROUBLESHOOTING.md              # 性能测试踩坑记录（Day 13-14 整理）
 ├── scripts/                        # 顶层辅助脚本
 │   └── push_k6_metrics.py           # k6 summary-export → Pushgateway（Day 9）
+├── services/                       # 多服务全链路压测场景（Week 3 Day 15）
+│   ├── product/main.py              # 商品服务（PG/SQLite + Redis/内存缓存双模式）
+│   ├── order/main.py                # 订单服务（下单时调商品服务校验库存）
+│   └── gateway/main.py              # API 网关（按路径转发到商品/订单服务）
 ├── docker-compose.yml               # 环境编排
+├── docker-compose.services.yml      # 多服务全链路编排（gateway + product + order + db + cache）
+├── run-services.ps1                 # 本地启动 3 服务（无 Docker，SQLite + 内存缓存降级）
+├── stop-services.ps1                # 停止本地 3 服务
 ├── .gitignore
 └── README.md
 ```
@@ -403,6 +411,33 @@ Day 12 已经跑过 A/B 数据，Day 13-14 把这些散点收束成**正式报�
 
 Week 2 验收总分（自评）：应用指标 20 + 可视化 20 + 瓶颈定位 28 + 性能优化 20 + 文档 10 = **98 分**（满分 100）。
 
+### Week 3 Day 15 多服务全链路场景搭建结论
+
+前两周一直在**单服务**上压测，Day 15 把场景升级为**微服务全链路**——一次请求穿越网关、多个业务服务、DB、缓存，为后续全链路压测打基础：
+
+| 产出 | 说明 |
+|------|------|
+| [`services/product/main.py`](services/product/main.py) | 商品服务：`GET /products/{id}`（缓存优先 TTL 60s）、`GET /products`（分页） |
+| [`services/order/main.py`](services/order/main.py) | 订单服务：`POST /orders`（调商品→算价→校验库存→写库）、`GET /orders/{id}` |
+| [`services/gateway/main.py`](services/gateway/main.py) | API 网关：按路径转发 `/products*`、`/orders*` 到下游 |
+| [`docker-compose.services.yml`](docker-compose.services.yml) | 5 节点编排：postgres + redis + product + order + gateway |
+| [`run-services.ps1`](run-services.ps1) / [`stop-services.ps1`](stop-services.ps1) | 本地一键启停（无 Docker 时 SQLite + 内存缓存降级） |
+| [`18_multiservice_setup.md`](perf/docs/18_multiservice_setup.md) | 架构图 + 服务职责 + 双模式降级 + 验证结果 + 踩坑 |
+
+**下单链路（5 节点串联）**：`gateway → order-service → product-service → (db/cache) → order-service → db`。
+
+**关键设计：双模式降级**。计划要求 PG + Redis，但本机无 Docker。两个有状态服务用 `_adapt_sql()` 自动转译 SQL 方言（`%s`→`?`、`SERIAL`→`INTEGER`、`DECIMAL`→`REAL`、去 `RETURNING id`），缓存有 Redis 用 Redis、否则内存 dict + TTL。这样**本地可验证全链路，Docker/CI 跑真实 PG+Redis**，不牺牲生产链路真实性。
+
+**本地全链路验证通过**：
+
+| 验证项 | 结果 |
+|--------|------|
+| `GET /products/1`（DB 命中） | `{"id":1,"name":"product_0","price":9.9,"stock":1000}` |
+| `GET /products/1`（缓存命中） | 同结果，TTL 60s |
+| `POST /orders`（5 节点下单） | `{"order_id":1,"total_price":29.7,"status":"created"}` ✅ |
+| `GET /orders/1` | 订单详情正常 |
+| 库存不足校验 | `400 {"detail":"Insufficient stock"}` |
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -417,3 +452,4 @@ Week 2 验收总分（自评）：应用指标 20 + 可视化 20 + 瓶颈定位 
 - [x] Week 2 Day 11: CPU / 内存瓶颈分析实战
 - [x] Week 2 Day 12: 性能优化实战
 - [x] Week 2 Day 13-14: 优化对比 + 文档整理
+- [x] Week 3 Day 15: 多服务全链路压测场景搭建（网关 + 商品 + 订单 + DB + 缓存）

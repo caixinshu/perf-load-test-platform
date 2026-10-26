@@ -1,0 +1,66 @@
+# ============================================================
+# 多服务全链路压测场景编排
+# 链路：client -> api-gateway:8000 -> {product-service:8001, order-service:8002}
+#       product-service -> db:5432 / cache-service:6379
+#       order-service  -> product-service / db
+#
+# 启动：docker-compose -f docker-compose.services.yml up -d --build
+# 验证：curl http://localhost:8000/products/1
+#       curl -X POST http://localhost:8000/orders -H 'Content-Type: application/json' -d '{"product_id":1,"quantity":2}'
+# ============================================================
+
+services:
+  # ---- 基础设施 ----
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: demo
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+
+  cache-service:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # ---- 业务服务 ----
+  product-service:
+    build: ./services/product
+    depends_on:
+      - db
+      - cache-service
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - REDIS_URL=redis://cache-service:6379/0
+
+  order-service:
+    build: ./services/order
+    depends_on:
+      - db
+      - product-service
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+
+  # ---- 网关 ----
+  api-gateway:
+    build: ./services/gateway
+    depends_on:
+      - product-service
+      - order-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PRODUCT_URL=http://product-service:8000
+      - ORDER_URL=http://order-service:8000
+
+volumes:
+  pg-data:
