@@ -130,6 +130,7 @@ perf-load-test-platform/
 │   │   ├── 16_cpu_memory_bottleneck_practice.md # CPU/内存瓶颈分析实战（Week 2 Day 11）
 │   │   ├── 17_performance_optimization_practice.md # 性能优化实战 A/B 对比（Week 2 Day 12）
 │   │   ├── 18_multiservice_setup.md       # 多服务全链路场景搭建（Week 3 Day 15）
+│   │   ├── 19_分布式压测.md                 # 分布式压测 k6 集群（Week 3 Day 16）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
 │   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
@@ -147,7 +148,8 @@ perf-load-test-platform/
 │   │   ├── 05-soak-test.js           # 稳定性测试（长时查泄漏）
 │   │   ├── 06-multi-scenario.js      # 多场景组合（3 种 executor + 分场景阈值）
 │   │   ├── 07-cpu-stress.js          # CPU 瓶颈制造 + A/B（Week 2 Day 11/12/13）
-│   │   └── 08-memory-leak.js         # 内存泄漏制造 + A/B（Week 2 Day 11/12/13）
+│   │   ├── 08-memory-leak.js         # 内存泄漏制造 + A/B（Week 2 Day 11/12/13）
+│   │   └── 09-distributed-load-test.js # 分布式压测脚本（SHARD 分片，Week 3 Day 16）
 │   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
 │   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
@@ -160,13 +162,15 @@ perf-load-test-platform/
 │   └── data/                        # 测试数据
 ├── TROUBLESHOOTING.md              # 性能测试踩坑记录（Day 13-14 整理）
 ├── scripts/                        # 顶层辅助脚本
-│   └── push_k6_metrics.py           # k6 summary-export → Pushgateway（Day 9）
+│   ├── push_k6_metrics.py           # k6 summary-export → Pushgateway（Day 9）
+│   └── aggregate_k6_results.py      # 分布式压测多 worker 结果聚合（Week 3 Day 16）
 ├── services/                       # 多服务全链路压测场景（Week 3 Day 15）
 │   ├── product/main.py              # 商品服务（PG/SQLite + Redis/内存缓存双模式）
 │   ├── order/main.py                # 订单服务（下单时调商品服务校验库存）
 │   └── gateway/main.py              # API 网关（按路径转发到商品/订单服务）
 ├── docker-compose.yml               # 环境编排
 ├── docker-compose.services.yml      # 多服务全链路编排（gateway + product + order + db + cache）
+├── docker-compose.distributed.yml   # 分布式压测编排（3 k6 worker + 被测服务 + 聚合器，Week 3 Day 16）
 ├── run-services.ps1                 # 本地启动 3 服务（无 Docker，SQLite + 内存缓存降级）
 ├── stop-services.ps1                # 停止本地 3 服务
 ├── .gitignore
@@ -182,6 +186,8 @@ perf-load-test-platform/
 | `k6-smoke-test` | `01-simple-get.js` | 10 VU / 30s | push、PR | ✅ 是（门禁 p95<100ms） |
 | `k6-load-test` | `02-load-test.js` | 20 VU / 3min | 定时、手动 | ✅ 是（Day 6 转正，门禁 p95<1.6s） |
 | `k6-load-test-prometheus` | `01-simple-get.js` + remote write + summary→Pushgateway | 10 VU / 30s | 仅手动 | ❌ 否（Day 7 灰度接入，Day 9 加结果推送） |
+| `multiservice-chain-test` | 全链路下单 + 库存校验 | 3 服务 5 节点 | push services/、手动 | ✅ 是（断言下单成功） |
+| `distributed-test` | `09-distributed-load-test.js`（3 worker 分片） | 150 VU / 3min | push 分布式相关、手动 | ✅ 是（断言聚合结果有数据） |
 
 **门禁值必须来自实测基线**：`门禁 = 基线 × 1.5`。
 Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次），得到基线 p95 = **26ms**（冒烟）/ **1.02s**（负载），
@@ -438,6 +444,25 @@ Week 2 验收总分（自评）：应用指标 20 + 可视化 20 + 瓶颈定位 
 | `GET /orders/1` | 订单详情正常 |
 | 库存不足校验 | `400 {"detail":"Insufficient stock"}` |
 
+### Week 3 Day 16 分布式压测（k6 集群）结论
+
+Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker 分片压测**，模拟真实多机压测集群：
+
+| 产出 | 说明 |
+|------|------|
+| [`docker-compose.distributed.yml`](docker-compose.distributed.yml) | 3 worker + 被测服务 + 聚合器，共享 `k6-results` volume |
+| [`09-distributed-load-test.js`](perf/scripts/09-distributed-load-test.js) | 分片脚本：`SHARD_ID`/`SHARD_COUNT` 分配数据段，避免多 worker 数据冲突 |
+| [`aggregate_k6_results.py`](scripts/aggregate_k6_results.py) | 多 worker JSON 聚合：count / avg / p90 / p95 / p99 / max |
+| [`distributed-test.yml`](.github/workflows/distributed-test.yml) | CI：5 节点服务 + 3 worker 压测 + 聚合 + 断言 |
+| [`19_分布式压测.md`](perf/docs/19_分布式压测.md) | 分片原理 + 架构 + 运行方式 + 踩坑 |
+
+**分片核心**：`USER_ID_BASE = SHARD_ID * 10000`，每个 worker 只压自己的数据段。3 worker × 50 VU = **总 150 VU**。
+
+**本地验证通过**：
+- `k6 inspect` 脚本语法 ✅
+- `py_compile` 聚合脚本 ✅
+- 模拟 2 worker 数据聚合：`http_req_duration` count/avg/p95/p99 正确 ✅
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -453,3 +478,4 @@ Week 2 验收总分（自评）：应用指标 20 + 可视化 20 + 瓶颈定位 
 - [x] Week 2 Day 12: 性能优化实战
 - [x] Week 2 Day 13-14: 优化对比 + 文档整理
 - [x] Week 3 Day 15: 多服务全链路压测场景搭建（网关 + 商品 + 订单 + DB + 缓存）
+- [x] Week 3 Day 16: 分布式压测（k6 集群 + 分片 + 结果聚合）

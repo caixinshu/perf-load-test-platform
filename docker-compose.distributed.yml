@@ -1,0 +1,116 @@
+# ============================================================
+# 分布式压测编排（Week 3 Day 16）
+#
+# 被测服务：复用 Day 15 的 5 节点（db + redis + product + order + gateway）
+# 压测集群：3 个 k6 worker，通过 SHARD_ID / SHARD_COUNT 分片
+# 结果聚合：k6-aggregator 汇总 3 个 worker 的 JSON 结果
+#
+# 启动：docker compose -f docker-compose.distributed.yml up --build --abort-on-container-exit
+# 查看结果：docker compose -f docker-compose.distributed.yml logs k6-aggregator
+# ============================================================
+
+services:
+  # ===================== 被测服务（复用 Day 15） =====================
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: demo
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo123
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  cache-service:
+    image: redis:7-alpine
+
+  product-service:
+    build: ./services/product
+    depends_on:
+      db:
+        condition: service_healthy
+      cache-service:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - REDIS_URL=redis://cache-service:6379/0
+
+  order-service:
+    build: ./services/order
+    depends_on:
+      db:
+        condition: service_healthy
+      product-service:
+        condition: service_started
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+
+  api-gateway:
+    build: ./services/gateway
+    depends_on:
+      - product-service
+      - order-service
+    ports:
+      - "8000:8000"
+    environment:
+      - PRODUCT_URL=http://product-service:8000
+      - ORDER_URL=http://order-service:8000
+
+  # ===================== k6 压测集群（3 worker 分片） =====================
+  k6-worker-1:
+    image: grafana/k6:latest
+    depends_on:
+      - api-gateway
+    volumes:
+      - ./perf:/scripts
+      - k6-results:/results
+    environment:
+      - SHARD_ID=0
+      - SHARD_COUNT=3
+    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker1.json
+
+  k6-worker-2:
+    image: grafana/k6:latest
+    depends_on:
+      - api-gateway
+    volumes:
+      - ./perf:/scripts
+      - k6-results:/results
+    environment:
+      - SHARD_ID=1
+      - SHARD_COUNT=3
+    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker2.json
+
+  k6-worker-3:
+    image: grafana/k6:latest
+    depends_on:
+      - api-gateway
+    volumes:
+      - ./perf:/scripts
+      - k6-results:/results
+    environment:
+      - SHARD_ID=2
+      - SHARD_COUNT=3
+    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker3.json
+
+  # ===================== 结果聚合器 =====================
+  # 等待 3 个 worker 全部完成后，汇总各 worker 的 JSON 结果
+  k6-aggregator:
+    image: python:3.11-slim
+    depends_on:
+      - k6-worker-1
+      - k6-worker-2
+      - k6-worker-3
+    volumes:
+      - ./scripts:/app
+      - k6-results:/results
+    command: python /app/aggregate_k6_results.py /results
+
+volumes:
+  pg-data:
+  k6-results:

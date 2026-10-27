@@ -1,0 +1,120 @@
+# ============================================================
+# 分布式压测验证（Week 3 Day 16）
+# 用 docker-compose.distributed.yml 启动 5 节点被测服务 + 3 个 k6 worker
+# 验证分片压测 + 结果聚合全流程
+# ============================================================
+
+name: Distributed Load Test
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'perf/scripts/09-distributed-load-test.js'
+      - 'scripts/aggregate_k6_results.py'
+      - 'docker-compose.distributed.yml'
+      - '.github/workflows/distributed-test.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'perf/scripts/09-distributed-load-test.js'
+      - 'docker-compose.distributed.yml'
+  workflow_dispatch:
+
+jobs:
+  distributed-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build & start system under test (5 nodes)
+        run: |
+          # 先只启动被测服务，等健康就绪
+          docker compose -f docker-compose.distributed.yml up -d --build \
+            db cache-service product-service order-service api-gateway
+
+          echo "--- 等待服务就绪 ---"
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+              echo "api-gateway ready"
+              break
+            fi
+            echo "waiting... ($i)"
+            sleep 3
+          done
+
+          # 确认全链路下单正常
+          curl -s http://localhost:8001/products/1
+          echo ""
+          curl -s -X POST http://localhost:8000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"product_id":1,"quantity":2}'
+          echo ""
+
+      - name: Run distributed load test (3 k6 workers)
+        run: |
+          echo "--- 启动 3 个 k6 worker 分片压测 ---"
+          docker compose -f docker-compose.distributed.yml up \
+            k6-worker-1 k6-worker-2 k6-worker-3 \
+            --abort-on-container-exit --exit-code-from k6-worker-1
+
+      - name: Aggregate results from 3 workers
+        run: |
+          echo "--- 聚合 3 个 worker 的结果 ---"
+          # 结果存在 k6-results volume 里，需要拷出来
+          docker create --name k6-results-temp \
+            -v $(basename $(pwd))_k6-results:/results alpine >/dev/null 2>&1 || \
+          docker create --name k6-results-temp \
+            -v perf-load-test-platform_k6-results:/results alpine >/dev/null 2>&1
+
+          mkdir -p ./perf/results/distributed
+          docker cp k6-results-temp:/results/. ./perf/results/distributed/ 2>/dev/null || true
+          docker rm k6-results-temp >/dev/null 2>&1
+
+          ls -la ./perf/results/distributed/
+
+          echo "--- 运行聚合脚本 ---"
+          python scripts/aggregate_k6_results.py ./perf/results/distributed
+
+      - name: Verify aggregated results
+        run: |
+          echo "--- 断言聚合结果关键指标 ---"
+          if [ ! -f ./perf/results/distributed/aggregated-summary.json ]; then
+            echo "❌ aggregated-summary.json 不存在"
+            exit 1
+          fi
+
+          python3 -c "
+import json
+with open('./perf/results/distributed/aggregated-summary.json') as f:
+    summary = json.load(f)
+assert 'http_req_duration' in summary, '缺少 http_req_duration 指标'
+assert summary['http_req_duration']['count'] > 0, 'http_req_duration 无数据点'
+d = summary['http_req_duration']
+print(f\"http_req_duration: count={d['count']}, avg={d['avg']:.2f}ms, p95={d['p(95)']:.2f}ms, p99={d['p(99)']:.2f}ms\")
+print('✅ 聚合结果验证通过')
+"
+
+      - name: Upload distributed results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: distributed-test-${{ github.run_id }}
+          path: perf/results/distributed/
+
+      - name: Show service logs (for debugging)
+        if: always()
+        run: |
+          echo "=== k6-worker-1 logs ==="
+          docker compose -f docker-compose.distributed.yml logs k6-worker-1 --tail 20 2>/dev/null || true
+          echo ""
+          echo "=== k6-worker-2 logs ==="
+          docker compose -f docker-compose.distributed.yml logs k6-worker-2 --tail 20 2>/dev/null || true
+          echo ""
+          echo "=== k6-worker-3 logs ==="
+          docker compose -f docker-compose.distributed.yml logs k6-worker-3 --tail 20 2>/dev/null || true
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.distributed.yml down -v
