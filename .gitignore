@@ -31,3 +31,6 @@ Thumbs.db
 
 # Docker
 *.log
+
+# Local SQLite (降级模式生成)
+services/**/*.db
