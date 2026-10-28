@@ -82,7 +82,7 @@ jobs:
             --abort-on-container-exit || true
 
           echo "--- 确认 3 个 worker 结果文件已生成 ---"
-          docker compose -f docker-compose.distributed.yml exec -T k6-worker-1 sh -c 'ls -la /results/' 2>/dev/null || true
+          # worker 容器已停止，用 docker create 挂载 volume 来检查文件
           docker create --name k6-check -v perf-load-test-platform_k6-results:/results alpine >/dev/null 2>&1 || \
           docker create --name k6-check -v $(basename $(pwd))_k6-results:/results alpine >/dev/null 2>&1
           docker start k6-check >/dev/null 2>&1 || true
