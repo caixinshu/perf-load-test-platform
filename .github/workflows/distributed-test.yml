@@ -75,9 +75,19 @@ jobs:
       - name: Run distributed load test (3 k6 workers)
         run: |
           echo "--- 启动 3 个 k6 worker 分片压测 ---"
+          # 不用 --exit-code-from，因为 worker 退出顺序不同会导致 SIGTERM
+          # 压测是否成功由后续的结果文件检查来判断
           docker compose -f docker-compose.distributed.yml up \
             k6-worker-1 k6-worker-2 k6-worker-3 \
-            --abort-on-container-exit --exit-code-from k6-worker-1
+            --abort-on-container-exit || true
+
+          echo "--- 确认 3 个 worker 结果文件已生成 ---"
+          docker compose -f docker-compose.distributed.yml exec -T k6-worker-1 sh -c 'ls -la /results/' 2>/dev/null || true
+          docker create --name k6-check -v perf-load-test-platform_k6-results:/results alpine >/dev/null 2>&1 || \
+          docker create --name k6-check -v $(basename $(pwd))_k6-results:/results alpine >/dev/null 2>&1
+          docker start k6-check >/dev/null 2>&1 || true
+          docker exec k6-check ls -la /results/
+          docker rm -f k6-check >/dev/null 2>&1 || true
 
       - name: Aggregate results from 3 workers
         run: |
