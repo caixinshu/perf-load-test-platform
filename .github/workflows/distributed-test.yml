@@ -85,16 +85,17 @@ jobs:
             exit 1
           fi
 
-          python3 -c "
-import json
-with open('./perf/results/distributed/aggregated-summary.json') as f:
-    summary = json.load(f)
-assert 'http_req_duration' in summary, '缺少 http_req_duration 指标'
-assert summary['http_req_duration']['count'] > 0, 'http_req_duration 无数据点'
-d = summary['http_req_duration']
-print(f\"http_req_duration: count={d['count']}, avg={d['avg']:.2f}ms, p95={d['p(95)']:.2f}ms, p99={d['p(99)']:.2f}ms\")
-print('✅ 聚合结果验证通过')
-"
+          python3 - <<'PY'
+          import json
+          with open('./perf/results/distributed/aggregated-summary.json') as f:
+              summary = json.load(f)
+          assert 'http_req_duration' in summary, '缺少 http_req_duration 指标'
+          assert summary['http_req_duration']['count'] > 0, 'http_req_duration 无数据点'
+          d = summary['http_req_duration']
+          print("http_req_duration: count=%d, avg=%.2fms, p95=%.2fms, p99=%.2fms" % (
+              d['count'], d['avg'], d['p(95)'], d['p(99)']))
+          print("✅ 聚合结果验证通过")
+          PY
 
       - name: Upload distributed results
         uses: actions/upload-artifact@v4
