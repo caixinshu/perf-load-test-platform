@@ -15,6 +15,15 @@ from fastapi import FastAPI, Request
 
 app = FastAPI(title="API Gateway")
 
+# ---------------------------------------------------------------------------
+# 链路追踪（OTel + Jaeger，本地默认关闭）
+# ---------------------------------------------------------------------------
+from tracing import init_tracing, instrument_fastapi, instrument_httpx
+
+init_tracing("api-gateway")
+instrument_fastapi(app)
+instrument_httpx()
+
 PRODUCT_URL = os.environ.get("PRODUCT_URL", "http://localhost:8001")
 ORDER_URL = os.environ.get("ORDER_URL", "http://localhost:8002")
 

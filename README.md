@@ -131,6 +131,7 @@ perf-load-test-platform/
 │   │   ├── 17_performance_optimization_practice.md # 性能优化实战 A/B 对比（Week 2 Day 12）
 │   │   ├── 18_multiservice_setup.md       # 多服务全链路场景搭建（Week 3 Day 15）
 │   │   ├── 19_分布式压测.md                 # 分布式压测 k6 集群（Week 3 Day 16）
+│   │   ├── 20_jaeger_tracing.md          # Jaeger 链路追踪接入（Week 3 Day 17）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
 │   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
@@ -463,6 +464,23 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 - `py_compile` 聚合脚本 ✅
 - 模拟 2 worker 数据聚合：`http_req_duration` count/avg/p95/p99 正确 ✅
 
+### Week 3 Day 17 Jaeger 链路追踪结论
+
+给 3 个服务接入 OpenTelemetry，用 Jaeger 查看完整调用链：
+
+| 产出 | 说明 |
+|------|------|
+| [`services/tracing.py`](services/tracing.py) | 公共 OTel 模块：`init_tracing` + `instrument_fastapi/httpx/psycopg2` |
+| [`docker-compose.services.yml`](docker-compose.services.yml) | 增加 Jaeger all-in-one，3 服务配置 `OTEL_ENABLED=true` |
+| [`20_jaeger_tracing.md`](perf/docs/20_jaeger_tracing.md) | 链路追踪原理 + OTel 接入 + Jaeger 验证 + 踩坑 |
+
+**降级策略**：`OTEL_ENABLED` 默认 `false`，本地无 Jaeger 时 tracing 自动跳过，不影响业务。设为 `true` 但无 Jaeger 时，exporter 异步发送失败不影响请求处理。
+
+**本地验证通过**：
+- 3 服务降级模式健康检查 ✅
+- 全链路下单（gateway → order → product → db/cache → order → db）✅
+- OTel 启用模式（无 Jaeger）服务正常运行 ✅
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -479,3 +497,4 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 - [x] Week 2 Day 13-14: 优化对比 + 文档整理
 - [x] Week 3 Day 15: 多服务全链路压测场景搭建（网关 + 商品 + 订单 + DB + 缓存）
 - [x] Week 3 Day 16: 分布式压测（k6 集群 + 分片 + 结果聚合）
+- [x] Week 3 Day 17: Jaeger 链路追踪接入（OTel + 自动埋点）

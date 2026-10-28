@@ -19,6 +19,16 @@ from pydantic import BaseModel
 
 app = FastAPI(title="Order Service")
 
+# ---------------------------------------------------------------------------
+# 链路追踪（OTel + Jaeger，本地默认关闭）
+# ---------------------------------------------------------------------------
+from tracing import init_tracing, instrument_fastapi, instrument_httpx, instrument_psycopg2
+
+init_tracing("order-service")
+instrument_fastapi(app)
+instrument_httpx()
+instrument_psycopg2()
+
 PRODUCT_SERVICE_URL = os.environ.get("PRODUCT_SERVICE_URL", "http://localhost:8001")
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./order.db")

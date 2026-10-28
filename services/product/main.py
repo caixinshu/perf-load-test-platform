@@ -20,6 +20,15 @@ from fastapi import FastAPI, HTTPException
 app = FastAPI(title="Product Service")
 
 # ---------------------------------------------------------------------------
+# 链路追踪（OTel + Jaeger，本地默认关闭）
+# ---------------------------------------------------------------------------
+from tracing import init_tracing, instrument_fastapi, instrument_psycopg2
+
+init_tracing("product-service")
+instrument_fastapi(app)
+instrument_psycopg2()
+
+# ---------------------------------------------------------------------------
 # 数据库连接（PG / SQLite 双模式）
 # ---------------------------------------------------------------------------
 DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///./product.db")

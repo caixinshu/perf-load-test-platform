@@ -28,6 +28,11 @@ services:
   cache-service:
     image: redis:7-alpine
 
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+
   product-service:
     build: ./services/product
     depends_on:
@@ -35,9 +40,13 @@ services:
         condition: service_healthy
       cache-service:
         condition: service_started
+      jaeger:
+        condition: service_started
     environment:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - REDIS_URL=redis://cache-service:6379/0
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
   order-service:
     build: ./services/order
@@ -46,20 +55,27 @@ services:
         condition: service_healthy
       product-service:
         condition: service_started
+      jaeger:
+        condition: service_started
     environment:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - PRODUCT_SERVICE_URL=http://product-service:8000
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
   api-gateway:
     build: ./services/gateway
     depends_on:
       - product-service
       - order-service
+      - jaeger
     ports:
       - "8000:8000"
     environment:
       - PRODUCT_URL=http://product-service:8000
       - ORDER_URL=http://order-service:8000
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
   # ===================== k6 压测集群（3 worker 分片） =====================
   k6-worker-1:

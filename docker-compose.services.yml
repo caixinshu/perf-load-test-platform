@@ -27,28 +27,44 @@ services:
     ports:
       - "6379:6379"
 
+  # ---- 链路追踪 ----
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "6831:6831/udp" # agent 接收 thrift
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+      - QUERY_BASE_PATH=/jaeger
+
   # ---- 业务服务 ----
   product-service:
     build: ./services/product
     depends_on:
       - db
       - cache-service
+      - jaeger
     ports:
       - "8001:8000"
     environment:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - REDIS_URL=redis://cache-service:6379/0
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
   order-service:
     build: ./services/order
     depends_on:
       - db
       - product-service
+      - jaeger
     ports:
       - "8002:8000"
     environment:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - PRODUCT_SERVICE_URL=http://product-service:8000
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
   # ---- 网关 ----
   api-gateway:
@@ -56,11 +72,14 @@ services:
     depends_on:
       - product-service
       - order-service
+      - jaeger
     ports:
       - "8000:8000"
     environment:
       - PRODUCT_URL=http://product-service:8000
       - ORDER_URL=http://order-service:8000
+      - OTEL_ENABLED=true
+      - OTEL_JAEGER_HOST=jaeger
 
 volumes:
   pg-data:
