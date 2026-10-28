@@ -64,6 +64,7 @@ services:
   # ===================== k6 压测集群（3 worker 分片） =====================
   k6-worker-1:
     image: grafana/k6:latest
+    user: "0:0"
     depends_on:
       - api-gateway
     volumes:
@@ -76,6 +77,7 @@ services:
 
   k6-worker-2:
     image: grafana/k6:latest
+    user: "0:0"
     depends_on:
       - api-gateway
     volumes:
@@ -88,6 +90,7 @@ services:
 
   k6-worker-3:
     image: grafana/k6:latest
+    user: "0:0"
     depends_on:
       - api-gateway
     volumes:
