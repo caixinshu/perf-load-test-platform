@@ -34,19 +34,39 @@ jobs:
           docker compose -f docker-compose.distributed.yml up -d --build \
             db cache-service product-service order-service api-gateway
 
-          echo "--- 等待服务就绪 ---"
+          echo "--- 等待 api-gateway 就绪 ---"
+          READY=0
           for i in $(seq 1 40); do
             if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
-              echo "api-gateway ready"
+              echo "api-gateway ready (after ${i} tries)"
+              READY=1
               break
             fi
             echo "waiting... ($i)"
             sleep 3
           done
 
-          # 确认全链路下单正常
-          curl -s http://localhost:8001/products/1
+          if [ "$READY" -ne 1 ]; then
+            echo "❌ api-gateway 未能就绪，打印服务日志排查："
+            echo "=== docker compose ps ==="
+            docker compose -f docker-compose.distributed.yml ps
+            echo ""
+            echo "=== product-service logs ==="
+            docker compose -f docker-compose.distributed.yml logs product-service --tail 50
+            echo ""
+            echo "=== order-service logs ==="
+            docker compose -f docker-compose.distributed.yml logs order-service --tail 50
+            echo ""
+            echo "=== api-gateway logs ==="
+            docker compose -f docker-compose.distributed.yml logs api-gateway --tail 50
+            exit 1
+          fi
+
+          # 通过网关验证全链路（不直接访问内部服务端口）
+          echo "--- 验证商品查询 ---"
+          curl -s http://localhost:8000/products/1
           echo ""
+          echo "--- 验证下单 ---"
           curl -s -X POST http://localhost:8000/orders \
             -H "Content-Type: application/json" \
             -d '{"product_id":1,"quantity":2}'
