@@ -35,7 +35,6 @@ services:
       - "6831:6831/udp" # agent 接收 thrift
     environment:
       - COLLECTOR_ZIPKIN_HOST_PORT=:9411
-      - QUERY_BASE_PATH=/jaeger
 
   # ---- 业务服务 ----
   product-service:
