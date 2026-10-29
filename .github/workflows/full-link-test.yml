@@ -1,0 +1,94 @@
+# ============================================================
+# 全链路压测验证（Week 3 Day 18）
+#
+# 1. 启动 5 节点服务
+# 2. 用 k6 跑全链路压测脚本（混合场景：60%浏览/25%下单/15%查询）
+# 3. 断言错误率 < 5%，且有指标输出
+# ============================================================
+name: Full-Link Load Test
+
+on:
+  push:
+    paths:
+      - "perf/scripts/full-link-load-test.js"
+      - "services/**"
+      - ".github/workflows/full-link-test.yml"
+  workflow_dispatch:
+
+jobs:
+  full-link-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build & start 5 services
+        run: |
+          echo "--- 启动 5 节点 ---"
+          docker compose -f docker-compose.services.yml up -d --build
+
+          echo "--- 等待服务就绪 ---"
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+              echo "gateway ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run full-link load test
+        run: |
+          echo "--- 全链路压测（CI 快速版：10 VU / 60s）---"
+          docker run --rm \
+            --network perf-load-test-platform_ms-net \
+            -v "$(pwd)/perf/scripts/full-link-load-test.js:/test.js" \
+            -e GATEWAY_URL=http://api-gateway:8000 \
+            grafana/k6 run /test.js \
+            --vus 10 --duration 60s \
+            --summary-export /tmp/full-link-summary.json 2>&1 | tee /tmp/k6-full-link.log
+
+          echo "--- 检查结果 ---"
+          python3 - <<'PY'
+          import json, sys
+
+          with open("/tmp/full-link-summary.json") as f:
+              data = json.load(f)
+
+          metrics = data.get("metrics", {})
+
+          # 断言 1：有请求发出
+          http_reqs = metrics.get("http_reqs", {}).get("values", {}).get("count", 0)
+          if http_reqs < 10:
+              print(f"FAIL: 只有 {http_reqs} 个请求，预期 >= 10")
+              sys.exit(1)
+
+          # 断言 2：错误率 < 5%
+          failed = metrics.get("http_req_failed", {}).get("values", {}).get("rate", 0)
+          if failed > 0.05:
+              print(f"FAIL: 错误率 {failed:.2%} > 5%")
+              sys.exit(1)
+
+          # 断言 3：有响应时间数据
+          p95 = metrics.get("http_req_duration", {}).get("values", {}).get("p(95)", 0)
+          if p95 <= 0:
+              print("FAIL: 没有 http_req_duration 数据")
+              sys.exit(1)
+
+          print(f"PASS: http_reqs={http_reqs}, failed_rate={failed:.2%}, p95={p95:.1f}ms")
+          PY
+
+      - name: Show service logs (for debugging)
+        if: failure()
+        run: |
+          echo "=== api-gateway ==="
+          docker compose -f docker-compose.services.yml logs api-gateway --tail=30
+          echo "=== order-service ==="
+          docker compose -f docker-compose.services.yml logs order-service --tail=30
+          echo "=== product-service ==="
+          docker compose -f docker-compose.services.yml logs product-service --tail=30
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down -v

@@ -132,6 +132,7 @@ perf-load-test-platform/
 │   │   ├── 18_multiservice_setup.md       # 多服务全链路场景搭建（Week 3 Day 15）
 │   │   ├── 19_分布式压测.md                 # 分布式压测 k6 集群（Week 3 Day 16）
 │   │   ├── 20_jaeger_tracing.md          # Jaeger 链路追踪接入（Week 3 Day 17）
+│   │   ├── 21_全链路性能分析.md            # 全链路压测 + Jaeger 瓶颈定位（Week 3 Day 18）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
 │   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
@@ -151,6 +152,7 @@ perf-load-test-platform/
 │   │   ├── 07-cpu-stress.js          # CPU 瓶颈制造 + A/B（Week 2 Day 11/12/13）
 │   │   ├── 08-memory-leak.js         # 内存泄漏制造 + A/B（Week 2 Day 11/12/13）
 │   │   └── 09-distributed-load-test.js # 分布式压测脚本（SHARD 分片，Week 3 Day 16）
+│   │   └── full-link-load-test.js      # 全链路混合场景压测（60%浏览/25%下单/15%查询，Week 3 Day 18）
 │   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
 │   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
@@ -189,6 +191,8 @@ perf-load-test-platform/
 | `k6-load-test-prometheus` | `01-simple-get.js` + remote write + summary→Pushgateway | 10 VU / 30s | 仅手动 | ❌ 否（Day 7 灰度接入，Day 9 加结果推送） |
 | `multiservice-chain-test` | 全链路下单 + 库存校验 | 3 服务 5 节点 | push services/、手动 | ✅ 是（断言下单成功） |
 | `distributed-test` | `09-distributed-load-test.js`（3 worker 分片） | 150 VU / 3min | push 分布式相关、手动 | ✅ 是（断言聚合结果有数据） |
+| `jaeger-tracing-test` | OTel OTLP 上报 + Jaeger 断言 3 服务 span | 5 节点 + Jaeger | push tracing 相关、手动 | ✅ 是（断言 trace 含 3 服务） |
+| `full-link-test` | `full-link-load-test.js` 混合场景 | 10 VU / 60s（CI） | push 全链路脚本、手动 | ✅ 是（断言错误率<5%） |
 
 **门禁值必须来自实测基线**：`门禁 = 基线 × 1.5`。
 Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次），得到基线 p95 = **26ms**（冒烟）/ **1.02s**（负载），
@@ -481,6 +485,20 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 - 全链路下单（gateway → order → product → db/cache → order → db）✅
 - OTel 启用模式（无 Jaeger）服务正常运行 ✅
 
+### Week 3 Day 18 全链路性能分析结论
+
+设计混合业务模型压测脚本，结合 Jaeger 做端到端瓶颈分析：
+
+| 产出 | 说明 |
+|------|------|
+| [`full-link-load-test.js`](perf/scripts/full-link-load-test.js) | 混合场景：60% 浏览商品 / 25% 下单 / 15% 查订单，阶梯加压 100→200 VU |
+| [`21_全链路性能分析.md`](perf/docs/21_全链路性能分析.md) | 业务模型 + Jaeger 6 维度分析 + 3 个瓶颈定位实战场景 |
+| [`full-link-test.yml`](.github/workflows/full-link-test.yml) | CI：5 节点服务 + 全链路压测 + 断言错误率<5% |
+
+**Jaeger 链路分析 6 维度**：总耗时分布 / Span 耗时占比 / 服务间调用延迟 / 数据库操作 / 并发与等待 / 错误与异常。
+
+**瓶颈定位 3 场景**：慢 SQL（DB span 占 99%）、缓存失效（DB span 从 2ms→78ms）、连接池耗尽（等待连接占 99% 时间）。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -498,3 +516,4 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 - [x] Week 3 Day 15: 多服务全链路压测场景搭建（网关 + 商品 + 订单 + DB + 缓存）
 - [x] Week 3 Day 16: 分布式压测（k6 集群 + 分片 + 结果聚合）
 - [x] Week 3 Day 17: Jaeger 链路追踪接入（OTel + 自动埋点）
+- [x] Week 3 Day 18: 全链路性能分析实战（混合业务模型 + Jaeger 瓶颈定位）
