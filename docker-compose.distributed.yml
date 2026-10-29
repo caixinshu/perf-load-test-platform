@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # 分布式压测编排（Week 3 Day 16）
 #
 # 被测服务：复用 Day 15 的 5 节点（db + redis + product + order + gateway）
@@ -46,7 +46,7 @@ services:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - REDIS_URL=redis://cache-service:6379/0
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
   order-service:
     build: ./services/order
@@ -61,7 +61,7 @@ services:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - PRODUCT_SERVICE_URL=http://product-service:8000
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
   api-gateway:
     build: ./services/gateway
@@ -75,7 +75,7 @@ services:
       - PRODUCT_URL=http://product-service:8000
       - ORDER_URL=http://order-service:8000
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
   # ===================== k6 压测集群（3 worker 分片） =====================
   k6-worker-1:

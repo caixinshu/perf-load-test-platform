@@ -50,19 +50,23 @@ jobs:
       - name: Trigger full-chain request
         run: |
           echo "--- 发下单请求触发 5 节点链路 ---"
-          sleep 3  # 等 OTel BatchSpanProcessor 初始化
+          sleep 5  # 等 OTel BatchSpanProcessor 初始化
           curl -s -X POST http://localhost:8000/orders \
             -H "Content-Type: application/json" \
             -d '{"product_id": 1, "quantity": 2}'
           echo ""
           echo "--- 再发几个请求，让 span 被批量发送 ---"
-          for i in 1 2 3; do
+          for i in 1 2 3 4 5; do
             curl -s http://localhost:8000/products/$i >/dev/null
             curl -s -X POST http://localhost:8000/orders \
               -H "Content-Type: application/json" \
               -d "{\"product_id\": $i, \"quantity\": 1}" >/dev/null
           done
-          sleep 10  # 等 BatchSpanProcessor 批量发送 span 到 Jaeger
+          sleep 15  # 等 BatchSpanProcessor 批量发送 span 到 Jaeger
+
+          echo "--- Jaeger 中已注册的 service 列表 ---"
+          curl -s "http://localhost:16686/api/services"
+          echo ""
 
       - name: Verify traces in Jaeger
         run: |

@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # 多服务全链路压测场景编排
 # 链路：client -> api-gateway:8000 -> {product-service:8001, order-service:8002}
 #       product-service -> db:5432 / cache-service:6379
@@ -49,7 +49,7 @@ services:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - REDIS_URL=redis://cache-service:6379/0
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
   order-service:
     build: ./services/order
@@ -63,7 +63,7 @@ services:
       - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
       - PRODUCT_SERVICE_URL=http://product-service:8000
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
   # ---- 网关 ----
   api-gateway:
@@ -78,7 +78,7 @@ services:
       - PRODUCT_URL=http://product-service:8000
       - ORDER_URL=http://order-service:8000
       - OTEL_ENABLED=true
-      - OTEL_JAEGER_HOST=jaeger
+      - OTEL_OTLP_HOST=jaeger
 
 volumes:
   pg-data:

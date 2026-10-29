@@ -8,8 +8,8 @@ OpenTelemetry 链路追踪公共模块
 
 降级策略：
 - 通过 OTEL_ENABLED 环境变量控制是否启用（默认 false，本地无 Jaeger 时不启用）
-- OTEL_JAEGER_HOST / OTEL_JAEGER_PORT 配置 Jaeger agent 地址
-- 如果 OTel 依赖未安装，静默跳过，不影响业务
+- OTEL_OTLP_HOST / OTEL_OTLP_PORT 配置 OTLP collector 地址（Jaeger all-in-one 默认 4317）
+- 如果 OTel 依赖未安装或初始化失败，静默跳过，不影响业务
 """
 import os
 import logging
@@ -17,12 +17,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 OTEL_ENABLED = os.environ.get("OTEL_ENABLED", "false").lower() == "true"
-JAEGER_HOST = os.environ.get("OTEL_JAEGER_HOST", "jaeger")
-JAEGER_PORT = int(os.environ.get("OTEL_JAEGER_PORT", "6831"))
+OTLP_HOST = os.environ.get("OTEL_OTLP_HOST", "jaeger")
+OTLP_PORT = int(os.environ.get("OTEL_OTLP_PORT", "4317"))
 
 
 def init_tracing(service_name: str) -> None:
-    """初始化链路追踪，发送到 Jaeger agent。"""
+    """初始化链路追踪，通过 OTLP gRPC 发送到 Jaeger。"""
     if not OTEL_ENABLED:
         logger.info("OTel tracing disabled (set OTEL_ENABLED=true to enable)")
         return
@@ -32,6 +32,7 @@ def init_tracing(service_name: str) -> None:
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.resources import Resource
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 
         resource = Resource.create({
             "service.name": service_name,
@@ -39,17 +40,16 @@ def init_tracing(service_name: str) -> None:
         })
         provider = TracerProvider(resource=resource)
 
-        # Jaeger exporter（thrift UDP）
-        from opentelemetry.exporter.jaeger.thrift import JaegerExporter
-        jaeger_exporter = JaegerExporter(
-            agent_host_name=JAEGER_HOST,
-            agent_port=JAEGER_PORT,
+        # OTLP gRPC exporter（Jaeger all-in-one 默认监听 4317）
+        otlp_exporter = OTLPSpanExporter(
+            endpoint=f"{OTLP_HOST}:{OTLP_PORT}",
+            insecure=True,
         )
-        provider.add_span_processor(BatchSpanProcessor(jaeger_exporter))
+        provider.add_span_processor(BatchSpanProcessor(otlp_exporter))
 
         trace.set_tracer_provider(provider)
-        logger.info("OTel tracing enabled for service=%s, jaeger=%s:%s",
-                    service_name, JAEGER_HOST, JAEGER_PORT)
+        logger.info("OTel tracing enabled for service=%s, otlp=%s:%s",
+                    service_name, OTLP_HOST, OTLP_PORT)
     except ImportError as e:
         logger.warning("OTel dependencies not installed, tracing skipped: %s", e)
     except Exception as e:
