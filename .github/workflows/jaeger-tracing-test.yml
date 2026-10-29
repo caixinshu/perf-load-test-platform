@@ -1,0 +1,120 @@
+# ============================================================
+# Jaeger 链路追踪验证（Week 3 Day 17）
+#
+# 1. 启动 5 节点服务 + Jaeger（docker-compose.services.yml）
+# 2. 发下单请求触发全链路
+# 3. 通过 Jaeger API 查询 trace，断言包含 3 个服务的 span
+# ============================================================
+name: Jaeger Tracing Test
+
+on:
+  push:
+    paths:
+      - "services/**"
+      - "docker-compose.services.yml"
+      - ".github/workflows/jaeger-tracing-test.yml"
+  workflow_dispatch:
+
+jobs:
+  jaeger-tracing-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build & start 5 services + Jaeger
+        run: |
+          echo "--- 启动 5 节点 + Jaeger ---"
+          docker compose -f docker-compose.services.yml up -d --build
+
+          echo "--- 等待服务就绪 ---"
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+              echo "gateway ready"
+              break
+            fi
+            sleep 2
+          done
+
+          echo "--- 等待 Jaeger 就绪 ---"
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:16686/ >/dev/null 2>&1; then
+              echo "jaeger ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Trigger full-chain request
+        run: |
+          echo "--- 发下单请求触发 5 节点链路 ---"
+          sleep 3  # 等 OTel BatchSpanProcessor 初始化
+          curl -s -X POST http://localhost:8000/orders \
+            -H "Content-Type: application/json" \
+            -d '{"product_id": 1, "quantity": 2}'
+          echo ""
+          echo "--- 再发几个请求，让 span 被批量发送 ---"
+          for i in 1 2 3; do
+            curl -s http://localhost:8000/products/$i >/dev/null
+            curl -s -X POST http://localhost:8000/orders \
+              -H "Content-Type: application/json" \
+              -d "{\"product_id\": $i, \"quantity\": 1}" >/dev/null
+          done
+          sleep 10  # 等 BatchSpanProcessor 批量发送 span 到 Jaeger
+
+      - name: Verify traces in Jaeger
+        run: |
+          echo "--- 查询 Jaeger API: api-gateway 的 trace ---"
+          RESP=$(curl -s "http://localhost:16686/api/traces?service=api-gateway&limit=10")
+          echo "$RESP" | head -c 2000
+          echo ""
+
+          echo "--- 断言 trace 包含 3 个服务的 span ---"
+          python3 - <<'PY'
+          import json, sys, urllib.request
+
+          url = "http://localhost:16686/api/traces?service=api-gateway&limit=10"
+          with urllib.request.urlopen(url) as r:
+              data = json.loads(r.read())
+
+          traces = data.get("data", [])
+          if not traces:
+              print("FAIL: No traces found for api-gateway")
+              sys.exit(1)
+
+          # 收集所有 span 的 service.name
+          services = set()
+          for trace in traces:
+              for span in trace.get("spans", []):
+                  proc = span.get("process", {})
+                  svc = proc.get("serviceName", "")
+                  if svc:
+                      services.add(svc)
+
+          print(f"Found services in traces: {services}")
+
+          required = {"api-gateway", "order-service", "product-service"}
+          missing = required - services
+          if missing:
+              print(f"FAIL: Missing services in traces: {missing}")
+              sys.exit(1)
+
+          print(f"PASS: All {len(required)} services found in traces")
+          print(f"Total traces: {len(traces)}")
+          PY
+
+      - name: Show service logs (for debugging)
+        if: failure()
+        run: |
+          echo "=== api-gateway ==="
+          docker compose -f docker-compose.services.yml logs api-gateway --tail=30
+          echo "=== product-service ==="
+          docker compose -f docker-compose.services.yml logs product-service --tail=30
+          echo "=== order-service ==="
+          docker compose -f docker-compose.services.yml logs order-service --tail=30
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down -v
