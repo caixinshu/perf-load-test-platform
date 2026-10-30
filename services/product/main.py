@@ -53,9 +53,11 @@ def _adapt_sql(sql: str) -> str:
     return sql
 
 
-def get_db():
+def get_db(max_retries: int = 3, retry_delay: float = 1.0):
+    """获取数据库连接。PostgreSQL 模式下带重试，应对启动时序与短暂抖动。"""
     if DATABASE_URL.startswith("postgresql"):
         import psycopg2
+        import time
 
         # postgresql://user:pass@host:port/db
         rest = DATABASE_URL.replace("postgresql://", "")
@@ -63,10 +65,18 @@ def get_db():
         user, _, password = auth.partition(":")
         hostport, _, dbname = host_db.partition("/")
         host, _, port = hostport.partition(":")
-        return psycopg2.connect(
-            host=host, port=int(port or 5432), dbname=dbname,
-            user=user, password=password,
-        )
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                return psycopg2.connect(
+                    host=host, port=int(port or 5432), dbname=dbname,
+                    user=user, password=password,
+                )
+            except psycopg2.OperationalError as e:
+                last_err = e
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        raise last_err
     # sqlite
     path = DATABASE_URL.replace("sqlite:///", "")
     return sqlite3.connect(path)
@@ -122,7 +132,7 @@ else:
 # ---------------------------------------------------------------------------
 @app.on_event("startup")
 def init_db() -> None:
-    conn = get_db()
+    conn = get_db(max_retries=15, retry_delay=1.0)
     cur = conn.cursor()
     cur.execute(_adapt_sql("""
         CREATE TABLE IF NOT EXISTS products (

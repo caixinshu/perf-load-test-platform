@@ -46,19 +46,28 @@ def _adapt_sql(sql: str) -> str:
     return sql
 
 
-def get_db():
+def get_db(max_retries: int = 3, retry_delay: float = 1.0):
     if DATABASE_URL.startswith("postgresql"):
         import psycopg2
+        import time
 
         rest = DATABASE_URL.replace("postgresql://", "")
         auth, _, host_db = rest.partition("@")
         user, _, password = auth.partition(":")
         hostport, _, dbname = host_db.partition("/")
         host, _, port = hostport.partition(":")
-        return psycopg2.connect(
-            host=host, port=int(port or 5432), dbname=dbname,
-            user=user, password=password,
-        )
+        last_err = None
+        for attempt in range(max_retries):
+            try:
+                return psycopg2.connect(
+                    host=host, port=int(port or 5432), dbname=dbname,
+                    user=user, password=password,
+                )
+            except psycopg2.OperationalError as e:
+                last_err = e
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay)
+        raise last_err
     path = DATABASE_URL.replace("sqlite:///", "")
     return sqlite3.connect(path)
 
@@ -70,7 +79,7 @@ class OrderCreate(BaseModel):
 
 @app.on_event("startup")
 def init_db() -> None:
-    conn = get_db()
+    conn = get_db(max_retries=15, retry_delay=1.0)
     cur = conn.cursor()
     cur.execute(_adapt_sql("""
         CREATE TABLE IF NOT EXISTS orders (
