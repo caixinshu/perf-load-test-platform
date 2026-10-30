@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # 全链路压测验证（Week 3 Day 18）
 #
 # 1. 启动 5 节点服务
@@ -27,7 +27,7 @@ jobs:
       - name: Build & start 5 services
         run: |
           echo "--- 启动 5 节点 ---"
-          docker compose -f docker-compose.services.yml up -d --build
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml up -d --build
 
           echo "--- 等待服务就绪 ---"
           for i in $(seq 1 40); do
@@ -86,12 +86,12 @@ jobs:
         if: failure()
         run: |
           echo "=== api-gateway ==="
-          docker compose -f docker-compose.services.yml logs api-gateway --tail=30
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs api-gateway --tail=30
           echo "=== order-service ==="
-          docker compose -f docker-compose.services.yml logs order-service --tail=30
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs order-service --tail=30
           echo "=== product-service ==="
-          docker compose -f docker-compose.services.yml logs product-service --tail=30
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs product-service --tail=30
 
       - name: Cleanup
         if: always()
-        run: docker compose -f docker-compose.services.yml down -v
+        run: docker compose -p perf-load-test-platform -f docker-compose.services.yml down -v

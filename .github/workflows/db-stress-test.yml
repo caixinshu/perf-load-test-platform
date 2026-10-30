@@ -1,4 +1,4 @@
-# ============================================================
+﻿# ============================================================
 # 数据库压测验证（Week 3 Day 19）
 #
 # 1. 启动 5 节点服务（含 PostgreSQL 慢查询日志）
@@ -27,7 +27,7 @@ jobs:
       - name: Build & start 5 services
         run: |
           echo "--- 启动 5 节点（含 PG 慢查询日志）---"
-          docker compose -f docker-compose.services.yml up -d --build
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml up -d --build
 
           echo "--- 等待服务就绪 ---"
           for i in $(seq 1 40); do
@@ -37,6 +37,9 @@ jobs:
             fi
             sleep 2
           done
+
+          echo "--- 确认网络存在 ---"
+          docker network ls | grep ms-net
 
       - name: Run db stress test
         run: |
@@ -86,16 +89,16 @@ jobs:
         if: always()
         run: |
           echo "=== PostgreSQL 慢查询日志（>100ms）==="
-          docker compose -f docker-compose.services.yml logs db --tail=50 2>&1 | grep -i "duration" | head -20 || echo "no slow queries"
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs db --tail=50 2>&1 | grep -i "duration" | head -20 || echo "no slow queries"
 
       - name: Show service logs (for debugging)
         if: failure()
         run: |
           echo "=== api-gateway ==="
-          docker compose -f docker-compose.services.yml logs api-gateway --tail=20
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs api-gateway --tail=20
           echo "=== product-service ==="
-          docker compose -f docker-compose.services.yml logs product-service --tail=20
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs product-service --tail=20
 
       - name: Cleanup
         if: always()
-        run: docker compose -f docker-compose.services.yml down -v
+        run: docker compose -p perf-load-test-platform -f docker-compose.services.yml down -v
