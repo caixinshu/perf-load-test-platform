@@ -1,4 +1,4 @@
-# 11 - 监控与可观测性（Day 7）
+﻿# 11 - 监控与可观测性（Day 7）
 
 > 目标：把 k6 的压测指标从"测试结束才看到的一份汇总"变成"压测过程中实时可见的曲线"，
 > 并让主机资源指标（CPU / 内存 / 网络）与服务指标出现在同一张时间轴上，
@@ -109,7 +109,7 @@ K6_PROMETHEUS_RW_SERVER_URL=http://localhost:9090/api/v1/write \
 K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
 K6_PROMETHEUS_RW_STALE_MARKERS=true \
 K6_PROMETHEUS_RW_LABELS="environment=local,platform=windows" \
-k6 run -o experimental-prometheus-rw perf/scripts/02-load-test.js
+k6 run -o experimental-prometheus-rw perf/scripts/base/02-load-test.js
 ```
 
 ```powershell
@@ -118,7 +118,7 @@ $env:K6_PROMETHEUS_RW_SERVER_URL="http://localhost:9090/api/v1/write"
 $env:K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM="true"
 $env:K6_PROMETHEUS_RW_STALE_MARKERS="true"
 $env:K6_PROMETHEUS_RW_LABELS="environment=local,platform=windows"
-k6 run -o experimental-prometheus-rw perf/scripts/02-load-test.js
+k6 run -o experimental-prometheus-rw perf/scripts/base/02-load-test.js
 ```
 
 三个环境变量的作用：

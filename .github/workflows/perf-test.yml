@@ -59,7 +59,7 @@ jobs:
       - name: Run k6 smoke test
         run: |
           mkdir -p perf/results
-          k6 run perf/scripts/01-simple-get.js \
+          k6 run perf/scripts/base/01-simple-get.js \
             --summary-export=perf/results/smoke-summary.json \
             --out json=perf/results/smoke-result.json
 
@@ -123,7 +123,7 @@ jobs:
       - name: Run k6 load test (性能门禁，阈值不通过即失败)
         run: |
           mkdir -p perf/results
-          k6 run perf/scripts/02-load-test.js \
+          k6 run perf/scripts/base/02-load-test.js \
             --summary-export=perf/results/load-summary.json \
             --out json=perf/results/load-result.json
 
@@ -205,7 +205,7 @@ jobs:
           K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
           K6_PROMETHEUS_RW_STALE_MARKERS=true \
           K6_PROMETHEUS_RW_LABELS="environment=ci,runner=github-actions" \
-          k6 run -o experimental-prometheus-rw perf/scripts/01-simple-get.js \
+          k6 run -o experimental-prometheus-rw perf/scripts/base/01-simple-get.js \
             --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
             --summary-export=perf/results/rw-summary.json
 

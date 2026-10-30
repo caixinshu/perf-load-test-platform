@@ -1,7 +1,7 @@
 # TROUBLESHOOTING — 性能测试踩坑记录
 
 > 按问题类别整理，每条含：**现象 → 原因 → 解决 → 预防**。
-> 最后更新：2026-10-23（Week 2 Day 14）
+> 最后更新：2026-10-30（Week 3 Day 21）
 
 ---
 
@@ -147,3 +147,83 @@
 - **原因**：Dockerfile 用 python:slim，默认没装 curl
 - **解决**：Dockerfile 里加 `RUN apt-get update && apt-get install -y curl`
 - **预防**：Week 1 已修复，Dockerfile 当前版本包含 curl
+
+---
+
+## 七、多服务 & 分布式压测（Week 3）
+
+### 7.1 服务启动时序崩溃：product-service 连不上 PostgreSQL
+
+- **现象**：product-service 启动报错 `connection to server at "db" port 5432 failed: Connection refused`，服务直接退出
+- **原因**：`depends_on` 只保证容器启动顺序，不保证 PostgreSQL 就绪。PG 的 entrypoint 会先启动临时实例跑 init 脚本，再关闭重启正式实例，中间有窗口
+- **解决**：
+  1. compose 加 `db` healthcheck（`pg_isready`）+ `depends_on.condition: service_healthy`
+  2. 服务端 `get_db()` 加重试（启动时 15 次 × 1s 间隔），覆盖 PG init→shutdown→restart 全流程
+- **预防**：任何依赖外部中间件的服务，启动连接必须带重试，不能假设中间件已就绪
+
+### 7.2 k6 容器连不上被测服务（compose 内部网络不可达）
+
+- **现象**：k6 join compose 网络后请求 `api-gateway:8000` 报 `Temporary failure in name resolution`，100% 请求失败
+- **原因**：CI 环境下 compose 内部网络的容器间 DNS 解析不稳定
+- **解决**：k6 改用 `--network host`，目标地址从 `http://api-gateway:8000` 改为 `http://localhost:8000`，走主机端口映射通路
+- **预防**：CI 里 k6 优先走 host 网络 + localhost，避免依赖 compose 内部 DNS
+
+### 7.3 k6 summary JSON 格式版本不兼容
+
+- **现象**：Python 解析 k6 summary 时 `metrics["http_reqs"]["values"]["count"]` 永远取到 0，误报"0 个请求"
+- **原因**：k6 v1.0+ 的 `--summary-export` 去掉了 `values` 包装层，指标值直接挂在指标名下（`{"http_reqs": {"count": 54, "rate": 5.26}}`），旧脚本按 v0.x 格式取值
+- **解决**：`get_metric_value()` 兼容两种格式——优先读 `values.xxx`，没有则直接读 `xxx`
+- **预防**：k6 版本升级时必须检查 summary JSON schema，不能假设格式不变
+
+### 7.4 k6 容器写文件 permission denied
+
+- **现象**：`--summary-export /tmp/summary.json` 报 permission denied
+- **原因**：`grafana/k6` 镜像默认非 root 用户运行
+- **解决**：`docker run` 加 `--user 0:0`
+- **预防**：使用官方 k6 镜像时统一加 `--user 0:0`
+
+### 7.5 compose 网络名不一致导致 network not found
+
+- **现象**：k6 `--network <project>_ms-net` 报 `network not found`
+- **原因**：CI 里 `docker compose` 的 project name 可能与本地不同，导致网络名不同
+- **解决**：所有 `docker compose` 命令统一加 `-p perf-load-test-platform`，固定 project name
+- **预防**：CI workflow 里所有 compose 命令必须显式指定 `-p`
+
+### 7.6 PostgreSQL 连接泄漏导致压测下连接池耗尽
+
+- **现象**：压测时响应时间飙升、错误率上升，但 DB CPU 不高
+- **原因**：`get_db()` 创建连接后，异常路径（cur.execute 失败、缓存操作失败）没有 close 连接，连接泄漏
+- **解决**：所有 DB 操作用 `try/finally` 保证 `cur.close()` + `conn.close()`；缓存操作加 `try/except` 不影响主流程
+- **预防**：手动管理连接时，close 必须在 finally 里，不能放在正常路径末尾
+
+---
+
+## 八、Jaeger / 链路追踪（Week 3）
+
+### 8.1 OTel 包版本号写法错误导致装不上
+
+- **现象**：`pip install opentelemetry-instrumentation-psycopg2>=0.40` 报版本不存在
+- **原因**：OTel instrumentation 包是 beta 版，版本号是 `0.40b0` 不是 `0.40`
+- **解决**：requirements 写 `>=0.40b0`
+- **预防**：OTel 相关包统一用 `b0` 后缀
+
+### 8.2 Jaeger 查不到 trace（QUERY_BASE_PATH 坑）
+
+- **现象**：Jaeger UI 能打开，但 `/api/traces` 返回 HTML 而非 JSON
+- **原因**：compose 里设了 `QUERY_BASE_PATH=/jaeger`，导致 API 路径被改写
+- **解决**：移除 `QUERY_BASE_PATH` 环境变量
+- **预防**：Jaeger all-in-one 不要设 QUERY_BASE_PATH，除非有反向代理前缀需求
+
+### 8.3 Jaeger thrift UDP 6831 兼容性问题
+
+- **现象**：OTel JaegerExporter 发 span 到 6831/UDP，Jaeger 收不到
+- **原因**：新版 Jaeger 对 thrift UDP 协议支持有兼容问题
+- **解决**：改用 OTLP gRPC exporter，端口 4317，`OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317`
+- **预防**：Jaeger 1.50+ 优先用 OTLP 协议，不用 thrift
+
+### 8.4 Trace Context 没传递导致链路断裂
+
+- **现象**：Jaeger 里能看到 gateway span，但看不到下游 service span
+- **原因**：HTTP 调用下游时没把 `traceparent` header 传下去
+- **解决**：用 OTel 自动埋点的 httpx（`HTTPXClientInstrumentor`），会自动注入 traceparent
+- **预防**：跨服务 HTTP 调用必须用已 instrument 的客户端库

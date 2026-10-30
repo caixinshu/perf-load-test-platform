@@ -1,4 +1,4 @@
-# 08 - 性能指标解读与分析（Day 4）
+﻿# 08 - 性能指标解读与分析（Day 4）
 
 > 目标：建立系统化的性能分析思维框架，能看懂 k6 输出的每一个指标，能判断系统瓶颈在哪里、瓶颈有多严重，以及下一步该如何优化。
 
@@ -52,7 +52,7 @@
 
 ## 三、性能基线数据（10 VU / 1 分钟，3 次重复）
 
-脚本：`perf/scripts/baseline.js`，场景：10 并发用户，持续 1 分钟，混合调用 health / listItems / createItem 三个接口。
+脚本：`perf/scripts/base/baseline.js`，场景：10 并发用户，持续 1 分钟，混合调用 health / listItems / createItem 三个接口。
 
 ### 3 次原始数据
 
@@ -84,7 +84,7 @@
 
 ## 四、压力测试结果（50 → 500 VU 阶梯加压）
 
-脚本：`perf/scripts/stress-test.js`，场景：只压 GET /items（纯读），无 sleep，每级 1 分钟，逐级 50→100→200→300→500 VU。
+脚本：`perf/scripts/base/stress-test.js`，场景：只压 GET /items（纯读），无 sleep，每级 1 分钟，逐级 50→100→200→300→500 VU。
 
 ### 整体结果
 

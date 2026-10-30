@@ -1,4 +1,4 @@
-# 16 · CPU / 内存瓶颈分析实战（Week 2 Day 11）
+﻿# 16 · CPU / 内存瓶颈分析实战（Week 2 Day 11）
 
 > Day 10 学了方法论（USE / RED / 自顶向下），Day 11 把方法落地：
 > 给被测服务故意植入一个 **CPU 瓶颈接口** 和一个 **内存泄漏接口**，
@@ -31,7 +31,7 @@ k6 脚本：[`07-cpu-stress.js`](../scripts/07-cpu-stress.js)（50 VU / 1min）�
 ### 2.1 压测数据（未挂分析器的干净轮）
 
 ```powershell
-k6 run -e BASE_URL=http://127.0.0.1:8000 perf/scripts/07-cpu-stress.js
+k6 run -e BASE_URL=http://127.0.0.1:8000 perf/scripts/base/07-cpu-stress.js
 ```
 
 | 指标 | 实测值 | 解读 |
@@ -90,7 +90,7 @@ py-spy 在 Windows 上靠**挂起线程**读栈，100 次/秒 × 31 个线程的
 ### 3.1 压测数据与 RSS 四点采样
 
 ```powershell
-# 先清理，再压：POST /slow/memory/clear → k6 run perf/scripts/08-memory-leak.js
+# 先清理，再压：POST /slow/memory/clear → k6 run perf/scripts/base/08-memory-leak.js
 ```
 
 | 时点 | 进程 RSS（WorkingSet） | 说明 |

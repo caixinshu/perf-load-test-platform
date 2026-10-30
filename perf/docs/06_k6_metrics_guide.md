@@ -1,4 +1,4 @@
-# k6 指标解读笔记
+﻿# k6 指标解读笔记
 
 > Day 2 学习笔记 · 7 个核心指标含义 + 输出格式 + VU 与 TPS 关系
 
@@ -6,7 +6,7 @@
 
 ## 一、k6 输出指标详解
 
-运行 `k6 run perf/scripts/01-simple-get.js` 后，k6 会输出如下报告：
+运行 `k6 run perf/scripts/base/01-simple-get.js` 后，k6 会输出如下报告：
 
 ```
   checks.........................: 100.00% ✓ 297       ✗ 0
@@ -115,7 +115,7 @@ TPS = VU / (平均响应时间 + 思考时间)
 ### 1. 终端输出（默认）
 
 ```bash
-k6 run perf/scripts/01-simple-get.js
+k6 run perf/scripts/base/01-simple-get.js
 ```
 - 最常用，快速查看结果
 - 实时显示进度条
@@ -124,7 +124,7 @@ k6 run perf/scripts/01-simple-get.js
 ### 2. JSON 输出
 
 ```bash
-k6 run --out json=perf/results/result.json perf/scripts/01-simple-get.js
+k6 run --out json=perf/results/result.json perf/scripts/base/01-simple-get.js
 ```
 - NDJSON 格式（每行一个 JSON 对象）
 - 包含每个请求的详细数据
@@ -133,7 +133,7 @@ k6 run --out json=perf/results/result.json perf/scripts/01-simple-get.js
 ### 3. CSV 输出
 
 ```bash
-k6 run --out csv=perf/results/result.csv perf/scripts/01-simple-get.js
+k6 run --out csv=perf/results/result.csv perf/scripts/base/01-simple-get.js
 ```
 - 适合用 Excel 分析
 - 每行一个指标数据点
@@ -141,7 +141,7 @@ k6 run --out csv=perf/results/result.csv perf/scripts/01-simple-get.js
 ### 4. InfluxDB + Grafana（后续学习）
 
 ```bash
-k6 run --out influxdb=http://localhost:8086/k6 perf/scripts/01-simple-get.js
+k6 run --out influxdb=http://localhost:8086/k6 perf/scripts/base/01-simple-get.js
 ```
 - 实时可视化
 - 支持历史数据对比

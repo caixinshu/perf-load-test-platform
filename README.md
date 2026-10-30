@@ -1,4 +1,4 @@
-# 性能测试与全链路压测平台
+﻿# 性能测试与全链路压测平台
 
 > 项目二 · k6 + Prometheus + Grafana 性能测试体系
 
@@ -81,12 +81,12 @@ curl http://localhost:8000/health
 docker compose up -d api
 
 # 2. 运行压测
-k6 run perf/scripts/01-simple-get.js     # 快速冒烟：10 VU / 30s
-k6 run perf/scripts/02-load-test.js      # 完整负载：20 VU / 3min（stages 三段式）
+k6 run perf/scripts/base/01-simple-get.js     # 快速冒烟：10 VU / 30s
+k6 run perf/scripts/base/02-load-test.js      # 完整负载：20 VU / 3min（stages 三段式）
 
 # 3. 输出结构化结果
-k6 run --summary-export=perf/results/summary.json perf/scripts/02-load-test.js
-k6 run --out json=perf/results/result.json perf/scripts/01-simple-get.js
+k6 run --summary-export=perf/results/summary.json perf/scripts/base/02-load-test.js
+k6 run --out json=perf/results/result.json perf/scripts/base/01-simple-get.js
 ```
 
 ### 方式三：本地 k6 + 本地 Python 服务（不需要 Docker）
@@ -98,7 +98,7 @@ $env:DB_PATH = "f:\apk\其他\todo\quality-pipeline-demo\demo.db"
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # 2. 另开一个终端运行压测
-k6 run -e BASE_URL=http://localhost:8000 perf/scripts/02-load-test.js
+k6 run -e BASE_URL=http://localhost:8000 perf/scripts/base/02-load-test.js
 ```
 
 > 所有压测脚本都支持用 `-e BASE_URL=...` 覆盖被测地址，方便指向不同环境。
@@ -227,10 +227,10 @@ Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次
 
 | 脚本 | 类型 | 实测结论 |
 |------|------|----------|
-| [`03-smoke-test.js`](perf/scripts/03-smoke-test.js) | 冒烟 | checks 100%、失败率 0%，读写链路全通 |
-| [`04-spike-test.js`](perf/scripts/04-spike-test.js) | 尖峰（10→200 VU） | 失败率 0%，但 **p95 从 ~140ms 飙到 4.39s**；尖峰期吞吐不升反降（≈25 req/s），属并发过载 |
-| [`05-soak-test.js`](perf/scripts/05-soak-test.js) | 稳定性（20 VU） | 3 分钟 0 失败、p95=262ms；暴露内存泄漏需跑数小时 |
-| [`06-multi-scenario.js`](perf/scripts/06-multi-scenario.js) | 多场景组合 | 3 场景 3 executor + 分场景阈值，全部通过 |
+| [`03-smoke-test.js`](perf/scripts/base/03-smoke-test.js) | 冒烟 | checks 100%、失败率 0%，读写链路全通 |
+| [`04-spike-test.js`](perf/scripts/base/04-spike-test.js) | 尖峰（10→200 VU） | 失败率 0%，但 **p95 从 ~140ms 飙到 4.39s**；尖峰期吞吐不升反降（≈25 req/s），属并发过载 |
+| [`05-soak-test.js`](perf/scripts/base/05-soak-test.js) | 稳定性（20 VU） | 3 分钟 0 失败、p95=262ms；暴露内存泄漏需跑数小时 |
+| [`06-multi-scenario.js`](perf/scripts/scenarios/06-multi-scenario.js) | 多场景组合 | 3 场景 3 executor + 分场景阈值，全部通过 |
 
 完整讲解（7 种 executor、按场景设阈值、`dropped_iterations`）见 [`09_scenarios_and_executors.md`](perf/docs/09_scenarios_and_executors.md)。
 
@@ -253,8 +253,8 @@ p95 偏差 **±42%**，远超稳定线——**上升的不是系统劣化，而�
 
 | 脚本 | 基线 p95 | 基线 TPS | 失败率 | checks | 3 次偏差 |
 |------|---------|---------|--------|--------|---------|
-| [`01-simple-get.js`](perf/scripts/01-simple-get.js) | **26 ms** | 9.8 | 0% | 100% | p95 绝对差 13ms |
-| [`02-load-test.js`](perf/scripts/02-load-test.js) | **1.02 s** | 13.2 | ≤0.08% | ≥99.92% | p95 **±1%** |
+| [`01-simple-get.js`](perf/scripts/base/01-simple-get.js) | **26 ms** | 9.8 | 0% | 100% | p95 绝对差 13ms |
+| [`02-load-test.js`](perf/scripts/base/02-load-test.js) | **1.02 s** | 13.2 | ≤0.08% | ≥99.92% | p95 **±1%** |
 
 对照之下，p95 从 1.58s 降到 1.02s，方差从 ±42% 收到 ±1%——数据集就是这轮测试最强的自变量。
 
@@ -370,7 +370,7 @@ Day 10 是 Week 2 的**骨架日**——Day 7~9 把监控栈搭好、应用指�
 | 产出 | 说明 |
 |------|------|
 | `app/main.py`（quality-pipeline-demo） | 新增 `/slow/cpu`（sha256 循环）+ `/slow/memory`（全局列表泄漏）+ `/slow/memory/clear`，`@profile` 无内存分析器时优雅降级 |
-| [`07-cpu-stress.js`](perf/scripts/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/08-memory-leak.js) | constant-vus 持续施压，故意不设 thresholds（制造瓶颈，非门禁） |
+| [`07-cpu-stress.js`](perf/scripts/base/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/base/08-memory-leak.js) | constant-vus 持续施压，故意不设 thresholds（制造瓶颈，非门禁） |
 | [`16_cpu_memory_bottleneck_practice.md`](perf/docs/16_cpu_memory_bottleneck_practice.md) | CPU + 内存两份完整分析记录（现象 → 数据 → 工具 → 热点行 → 结论） |
 | [`images/`](perf/docs/images/) | py-spy 火焰图 SVG + mprof 趋势图 PNG + 原始采样数据 |
 
@@ -390,7 +390,7 @@ memory_profiler 逐行定位泄漏行 `_leaky_cache.append`（main.py:191，+1.9
 | 产出 | 说明 |
 |------|------|
 | `app/main.py`（quality-pipeline-demo） | 新增 5 个优化接口：`/slow/cpu/opt/{cache,blake2,parallel}` + `/slow/memory/opt/{bounded,release}` |
-| [`07-cpu-stress.js`](perf/scripts/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/08-memory-leak.js) | 参数化改造：`VUS` / `DURATION` / `TARGET_PATH` 环境变量，同一脚本压所有优化变体 |
+| [`07-cpu-stress.js`](perf/scripts/base/07-cpu-stress.js) / [`08-memory-leak.js`](perf/scripts/base/08-memory-leak.js) | 参数化改造：`VUS` / `DURATION` / `TARGET_PATH` 环境变量，同一脚本压所有优化变体 |
 | [`17_performance_optimization_practice.md`](perf/docs/17_performance_optimization_practice.md) | CPU 4 方案 + 内存 3 方案 A/B 数据、DB/应用层优化清单、优化验证报告 |
 
 **CPU 优化 A/B（50 VU）**：缓存 **158×** >> 减少计算 18.3× >> 进程池并行 4.6× ≈ blake2b 4.1×——「少做」碾压一切工程手段；并行用 ProcessPoolExecutor 绕 GIL（Day 11 已证线程池无效），实测坑：**进程池冷启动 15.6s**，必须常驻预热。
@@ -459,7 +459,7 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 | 产出 | 说明 |
 |------|------|
 | [`docker-compose.distributed.yml`](docker-compose.distributed.yml) | 3 worker + 被测服务 + 聚合器，共享 `k6-results` volume |
-| [`09-distributed-load-test.js`](perf/scripts/09-distributed-load-test.js) | 分片脚本：`SHARD_ID`/`SHARD_COUNT` 分配数据段，避免多 worker 数据冲突 |
+| [`09-distributed-load-test.js`](perf/scripts/distributed/09-distributed-load-test.js) | 分片脚本：`SHARD_ID`/`SHARD_COUNT` 分配数据段，避免多 worker 数据冲突 |
 | [`aggregate_k6_results.py`](scripts/aggregate_k6_results.py) | 多 worker JSON 聚合：count / avg / p90 / p95 / p99 / max |
 | [`distributed-test.yml`](.github/workflows/distributed-test.yml) | CI：5 节点服务 + 3 worker 压测 + 聚合 + 断言 |
 | [`19_分布式压测.md`](perf/docs/19_分布式压测.md) | 分片原理 + 架构 + 运行方式 + 踩坑 |
@@ -494,7 +494,7 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 
 | 产出 | 说明 |
 |------|------|
-| [`full-link-load-test.js`](perf/scripts/full-link-load-test.js) | 混合场景：60% 浏览商品 / 25% 下单 / 15% 查订单，阶梯加压 100→200 VU |
+| [`full-link-load-test.js`](perf/scripts/scenarios/full-link-load-test.js) | 混合场景：60% 浏览商品 / 25% 下单 / 15% 查订单，阶梯加压 100→200 VU |
 | [`21_全链路性能分析.md`](perf/docs/21_全链路性能分析.md) | 业务模型 + Jaeger 6 维度分析 + 3 个瓶颈定位实战场景 |
 | [`full-link-test.yml`](.github/workflows/full-link-test.yml) | CI：5 节点服务 + 全链路压测 + 断言错误率<5% |
 
@@ -508,7 +508,7 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 
 | 产出 | 说明 |
 |------|------|
-| [`db-stress-test.js`](perf/scripts/db-stress-test.js) | 4 场景混合：40% 查单（索引）/ 30% 列表 / 20% 写入 / 10% 模糊搜索（无索引慢查询） |
+| [`db-stress-test.js`](perf/scripts/scenarios/db-stress-test.js) | 4 场景混合：40% 查单（索引）/ 30% 列表 / 20% 写入 / 10% 模糊搜索（无索引慢查询） |
 | [`22_数据库压测与慢查询分析.md`](perf/docs/22_数据库压测与慢查询分析.md) | 7 个 DB 指标 + 慢查询配置 + EXPLAIN 分析 + 索引优化 + 6 种优化手段 |
 | [`db-stress-test.yml`](.github/workflows/db-stress-test.yml) | CI：5 节点（含 PG 慢查询日志）+ 数据库压测 + 断言错误率<5% |
 

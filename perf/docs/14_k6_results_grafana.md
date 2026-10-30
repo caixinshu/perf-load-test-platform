@@ -1,4 +1,4 @@
-# 14 - k6 结果接入 Grafana 可视化（Week 2 Day 9）
+﻿# 14 - k6 结果接入 Grafana 可视化（Week 2 Day 9）
 
 > 目标：把 k6 的压测结果**持久化**成 Prometheus 指标，并在 Grafana 上做成一块压测结果看板。
 > Day 7 解决的是「压测**过程中**看得见」，今天解决的是「压测**结束后**留得下、比得了」。
@@ -241,7 +241,7 @@ Grafana → `http://localhost:3000` → Dashboards → **k6 压测结果看板**
    k6 run -o experimental-prometheus-rw \
      --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
      --summary-export=perf/results/load-summary.json \
-     perf/scripts/01-simple-get.js
+     perf/scripts/base/01-simple-get.js
    ```
 4. **推送结果**：`python scripts/push_k6_metrics.py perf/results/load-summary.json --script 01-simple-get`
 5. **确认入库**：Prometheus 查询 `k6_test_http_req_duration_p95_seconds` 有值

@@ -1,4 +1,4 @@
-# k6 stages 加压模式与常用模块
+﻿# k6 stages 加压模式与常用模块
 
 > Day 3 学习笔记 · stages 三段式 + thresholds 性能门禁 + tags 分组 + 8 个内置模块
 
@@ -246,7 +246,7 @@ function randomIntBetween(min, max) {
 | 项 | 值 |
 |----|-----|
 | 被测服务 | FastAPI + SQLite（demo API） |
-| 脚本 | `perf/scripts/02-load-test.js` |
+| 脚本 | `perf/scripts/base/02-load-test.js` |
 | 负载曲线 | 30s 爬升至 20 VU → 2m 稳定 → 30s 恢复 |
 | 实际执行 | 3m04s，561 次迭代 |
 

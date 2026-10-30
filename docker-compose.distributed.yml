@@ -89,7 +89,7 @@ services:
     environment:
       - SHARD_ID=0
       - SHARD_COUNT=3
-    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker1.json
+    command: run /scripts/scripts/distributed/09-distributed-load-test.js --out json=/results/worker1.json
 
   k6-worker-2:
     image: grafana/k6:latest
@@ -102,7 +102,7 @@ services:
     environment:
       - SHARD_ID=1
       - SHARD_COUNT=3
-    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker2.json
+    command: run /scripts/scripts/distributed/09-distributed-load-test.js --out json=/results/worker2.json
 
   k6-worker-3:
     image: grafana/k6:latest
@@ -115,7 +115,7 @@ services:
     environment:
       - SHARD_ID=2
       - SHARD_COUNT=3
-    command: run /scripts/scripts/09-distributed-load-test.js --out json=/results/worker3.json
+    command: run /scripts/scripts/distributed/09-distributed-load-test.js --out json=/results/worker3.json
 
   # ===================== 结果聚合器 =====================
   # 等待 3 个 worker 全部完成后，汇总各 worker 的 JSON 结果

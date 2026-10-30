@@ -10,14 +10,14 @@ on:
   push:
     branches: [ main, develop ]
     paths:
-      - 'perf/scripts/09-distributed-load-test.js'
+      - 'perf/scripts/distributed/09-distributed-load-test.js'
       - 'scripts/aggregate_k6_results.py'
       - 'docker-compose.distributed.yml'
       - '.github/workflows/distributed-test.yml'
   pull_request:
     branches: [ main ]
     paths:
-      - 'perf/scripts/09-distributed-load-test.js'
+      - 'perf/scripts/distributed/09-distributed-load-test.js'
       - 'docker-compose.distributed.yml'
   workflow_dispatch:
 
