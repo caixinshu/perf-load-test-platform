@@ -29,11 +29,15 @@ services:
       - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
+    networks:
+      - ms-net
 
   cache-service:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    networks:
+      - ms-net
 
   # ---- 链路追踪 ----
   jaeger:
@@ -43,6 +47,8 @@ services:
       - "6831:6831/udp" # agent 接收 thrift
     environment:
       - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - ms-net
 
   # ---- 业务服务 ----
   product-service:
@@ -58,6 +64,8 @@ services:
       - REDIS_URL=redis://cache-service:6379/0
       - OTEL_ENABLED=true
       - OTEL_OTLP_HOST=jaeger
+    networks:
+      - ms-net
 
   order-service:
     build: ./services/order
@@ -72,6 +80,8 @@ services:
       - PRODUCT_SERVICE_URL=http://product-service:8000
       - OTEL_ENABLED=true
       - OTEL_OTLP_HOST=jaeger
+    networks:
+      - ms-net
 
   # ---- 网关 ----
   api-gateway:
@@ -87,6 +97,13 @@ services:
       - ORDER_URL=http://order-service:8000
       - OTEL_ENABLED=true
       - OTEL_OTLP_HOST=jaeger
+    networks:
+      - ms-net
+
+# 显式定义网络，确保网络名稳定为 <project>_ms-net，供外部 k6 容器连接
+networks:
+  ms-net:
+    driver: bridge
 
 volumes:
   pg-data:

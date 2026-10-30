@@ -40,20 +40,22 @@ jobs:
 
       - name: Run db stress test
         run: |
+          mkdir -p perf/results
           echo "--- 数据库压测（CI 快速版：10 VU / 60s）---"
           docker run --rm \
             --network perf-load-test-platform_ms-net \
             -v "$(pwd)/perf/scripts/db-stress-test.js:/test.js" \
+            -v "$(pwd)/perf/results:/results" \
             -e GATEWAY_URL=http://api-gateway:8000 \
             grafana/k6 run /test.js \
             --vus 10 --duration 60s \
-            --summary-export /tmp/db-stress-summary.json 2>&1 | tee /tmp/k6-db-stress.log
+            --summary-export /results/db-stress-summary.json 2>&1 | tee /tmp/k6-db-stress.log
 
           echo "--- 检查结果 ---"
           python3 - <<'PY'
           import json, sys
 
-          with open("/tmp/db-stress-summary.json") as f:
+          with open("perf/results/db-stress-summary.json") as f:
               data = json.load(f)
 
           metrics = data.get("metrics", {})

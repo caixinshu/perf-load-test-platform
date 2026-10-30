@@ -106,15 +106,16 @@ jobs:
             -d '{"product_id":1,"quantity":3}')
           echo "$ORDER_RESP"
           echo "$ORDER_RESP" > /tmp/order.json
-          python3 -c "
-import json
-d=json.load(open('/tmp/order.json'))
-assert d['order_id'] > 0, 'order_id 异常'
-assert d['product_id'] == 1
-assert d['quantity'] == 3
-assert d['total_price'] > 0
-assert d['status'] == 'created'
-"
+          python3 - <<'PY'
+          import json
+          d = json.load(open('/tmp/order.json'))
+          assert d['order_id'] > 0, 'order_id 异常'
+          assert d['product_id'] == 1
+          assert d['quantity'] == 3
+          assert d['total_price'] > 0
+          assert d['status'] == 'created'
+          print('assertions passed')
+          PY
           echo "✅ full-chain create order OK (5 nodes)"
 
           echo ""
