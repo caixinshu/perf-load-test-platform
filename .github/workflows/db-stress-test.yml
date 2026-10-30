@@ -29,7 +29,7 @@ jobs:
           echo "--- 启动 5 节点（含 PG 慢查询日志）---"
           docker compose -p perf-load-test-platform -f docker-compose.services.yml up -d --build
 
-          echo "--- 等待服务就绪 ---"
+          echo "--- 等待网关就绪 ---"
           for i in $(seq 1 40); do
             if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
               echo "gateway ready"
@@ -38,8 +38,33 @@ jobs:
             sleep 2
           done
 
+          echo "--- 等待 product-service 就绪（通过网关验证 /products/1）---"
+          for i in $(seq 1 30); do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/products/1)
+            if [ "$HTTP_CODE" = "200" ]; then
+              echo "product-service ready (via gateway), http=$HTTP_CODE"
+              break
+            fi
+            echo "waiting product-service... ($i) http=$HTTP_CODE"
+            sleep 2
+          done
+
           echo "--- 确认网络存在 ---"
           docker network ls | grep ms-net
+
+      - name: Diagnose k6 -> gateway connectivity
+        run: |
+          echo "--- 从 compose 网络内测试 api-gateway 连通性 ---"
+          docker run --rm \
+            --network perf-load-test-platform_ms-net \
+            curlimages/curl:8 -sf -m 5 http://api-gateway:8000/health && echo "✅ api-gateway reachable from k6 network" || {
+            echo "❌ api-gateway NOT reachable from k6 network"
+            echo "--- 网络详情 ---"
+            docker network inspect perf-load-test-platform_ms-net
+            echo "--- 网关容器状态 ---"
+            docker compose -p perf-load-test-platform -f docker-compose.services.yml ps
+            exit 1
+          }
 
       - name: Run db stress test
         run: |
@@ -64,20 +89,32 @@ jobs:
 
           metrics = data.get("metrics", {})
 
+          def get_metric_value(metric_name, key):
+              """兼容 k6 v0.x (values 包装) 与 v1.x+/v2.x (扁平化) 的 summary 格式"""
+              m = metrics.get(metric_name, {})
+              if isinstance(m, dict) and "values" in m:
+                  return m["values"].get(key, 0)
+              return m.get(key, 0) if isinstance(m, dict) else 0
+
           # 断言 1：有请求
-          http_reqs = metrics.get("http_reqs", {}).get("values", {}).get("count", 0)
+          http_reqs = get_metric_value("http_reqs", "count")
           if http_reqs < 10:
               print(f"FAIL: 只有 {http_reqs} 个请求")
               sys.exit(1)
 
           # 断言 2：错误率 < 5%
-          failed = metrics.get("http_req_failed", {}).get("values", {}).get("rate", 0)
+          # http_req_failed 是 rate 指标：v1.x+ 用 value，v0.x 用 values.rate
+          failed_metric = metrics.get("http_req_failed", {})
+          if isinstance(failed_metric, dict) and "values" in failed_metric:
+              failed = failed_metric["values"].get("rate", 0)
+          else:
+              failed = failed_metric.get("value", 0) if isinstance(failed_metric, dict) else 0
           if failed > 0.05:
               print(f"FAIL: 错误率 {failed:.2%} > 5%")
               sys.exit(1)
 
           # 断言 3：有响应时间
-          p95 = metrics.get("http_req_duration", {}).get("values", {}).get("p(95)", 0)
+          p95 = get_metric_value("http_req_duration", "p(95)")
           if p95 <= 0:
               print("FAIL: 没有响应时间数据")
               sys.exit(1)
