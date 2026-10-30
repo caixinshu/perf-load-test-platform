@@ -49,28 +49,29 @@ jobs:
             sleep 2
           done
 
-      - name: Diagnose k6 -> gateway connectivity
+      - name: Verify gateway reachable from host network
         run: |
-          echo "--- 从 compose 网络内测试 api-gateway 连通性 ---"
-          docker run --rm \
-            --network perf-load-test-platform_ms-net \
-            curlimages/curl:8 -sf -m 5 http://api-gateway:8000/health && echo "✅ api-gateway reachable from k6 network" || {
-            echo "❌ api-gateway NOT reachable from k6 network"
-            docker network inspect perf-load-test-platform_ms-net
+          echo "--- 验证网关可从主机网络访问（k6 将用 --network host 走同一通路）---"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/health)
+          echo "gateway /health -> $HTTP_CODE"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ gateway 不可达"
             docker compose -p perf-load-test-platform -f docker-compose.services.yml ps
             exit 1
-          }
+          fi
+          echo "✅ gateway reachable, k6 将通过 host 网络访问 localhost:8000"
 
       - name: Run full-link load test
         run: |
           mkdir -p perf/results
           echo "--- 全链路压测（CI 快速版：10 VU / 60s）---"
+          # 用 --network host 走主机网络，避免 compose 内部 DNS 在 CI 上偶发不可达
           docker run --rm \
             --user 0:0 \
-            --network perf-load-test-platform_ms-net \
+            --network host \
             -v "$(pwd)/perf/scripts/full-link-load-test.js:/test.js" \
             -v "$(pwd)/perf/results:/results" \
-            -e GATEWAY_URL=http://api-gateway:8000 \
+            -e GATEWAY_URL=http://localhost:8000 \
             grafana/k6 run /test.js \
             --vus 10 --duration 60s \
             --summary-export /results/full-link-summary.json 2>&1 | tee /tmp/k6-full-link.log
