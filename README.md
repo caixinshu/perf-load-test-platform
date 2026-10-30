@@ -133,6 +133,7 @@ perf-load-test-platform/
 │   │   ├── 19_分布式压测.md                 # 分布式压测 k6 集群（Week 3 Day 16）
 │   │   ├── 20_jaeger_tracing.md          # Jaeger 链路追踪接入（Week 3 Day 17）
 │   │   ├── 21_全链路性能分析.md            # 全链路压测 + Jaeger 瓶颈定位（Week 3 Day 18）
+│   │   ├── 22_数据库压测与慢查询分析.md      # 数据库压测 + EXPLAIN + 索引优化（Week 3 Day 19）
 │   │   ├── PERF_ANALYSIS_REPORT_TEMPLATE.md # 性能分析报告模板
 │   │   ├── reports/                    # 正式性能测试报告（Week 2 Day 13）
 │   │   │   └── 20261023-week2-full-report.md # Week 2 完整优化对比报告
@@ -153,6 +154,7 @@ perf-load-test-platform/
 │   │   ├── 08-memory-leak.js         # 内存泄漏制造 + A/B（Week 2 Day 11/12/13）
 │   │   └── 09-distributed-load-test.js # 分布式压测脚本（SHARD 分片，Week 3 Day 16）
 │   │   └── full-link-load-test.js      # 全链路混合场景压测（60%浏览/25%下单/15%查询，Week 3 Day 18）
+│   │   └── db-stress-test.js          # 数据库压测（读/写/查/搜混合，Week 3 Day 19）
 │   ├── monitoring/                  # 监控栈配置（Day 7 / Day 9）
 │   │   ├── prometheus/prometheus.yml # 抓取 node_exporter + demo-api + pushgateway + 自身
 │   │   └── grafana/
@@ -193,6 +195,7 @@ perf-load-test-platform/
 | `distributed-test` | `09-distributed-load-test.js`（3 worker 分片） | 150 VU / 3min | push 分布式相关、手动 | ✅ 是（断言聚合结果有数据） |
 | `jaeger-tracing-test` | OTel OTLP 上报 + Jaeger 断言 3 服务 span | 5 节点 + Jaeger | push tracing 相关、手动 | ✅ 是（断言 trace 含 3 服务） |
 | `full-link-test` | `full-link-load-test.js` 混合场景 | 10 VU / 60s（CI） | push 全链路脚本、手动 | ✅ 是（断言错误率<5%） |
+| `db-stress-test` | `db-stress-test.js` 数据库混合场景 | 10 VU / 60s（CI） | push 数据库脚本、手动 | ✅ 是（断言错误率<5%） |
 
 **门禁值必须来自实测基线**：`门禁 = 基线 × 1.5`。
 Day 6 已完成受控测量（固定 200 条数据、每轮重置、连跑 3 次），得到基线 p95 = **26ms**（冒烟）/ **1.02s**（负载），
@@ -499,6 +502,20 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 
 **瓶颈定位 3 场景**：慢 SQL（DB span 占 99%）、缓存失效（DB span 从 2ms→78ms）、连接池耗尽（等待连接占 99% 时间）。
 
+### Week 3 Day 19 数据库压测与慢查询分析结论
+
+对数据库做压测 + 慢查询分析 + 索引优化：
+
+| 产出 | 说明 |
+|------|------|
+| [`db-stress-test.js`](perf/scripts/db-stress-test.js) | 4 场景混合：40% 查单（索引）/ 30% 列表 / 20% 写入 / 10% 模糊搜索（无索引慢查询） |
+| [`22_数据库压测与慢查询分析.md`](perf/docs/22_数据库压测与慢查询分析.md) | 7 个 DB 指标 + 慢查询配置 + EXPLAIN 分析 + 索引优化 + 6 种优化手段 |
+| [`db-stress-test.yml`](.github/workflows/db-stress-test.yml) | CI：5 节点（含 PG 慢查询日志）+ 数据库压测 + 断言错误率<5% |
+
+**慢查询配置**：`log_min_duration_statement=100`（超过 100ms 的 SQL 记录）。
+
+**索引优化对比**：`LIKE 'test%'` 加 B-tree 索引后从 12.5ms → 0.5ms（25 倍）；但 `LIKE '%test%'` 前后模糊索引无效。
+
 ## 进度
 
 - [x] Week 1 Day 1: 性能测试基础概念
@@ -517,3 +534,4 @@ Day 15 搭好了被测服务，Day 16 升级压测端——用 **3 个 k6 worker
 - [x] Week 3 Day 16: 分布式压测（k6 集群 + 分片 + 结果聚合）
 - [x] Week 3 Day 17: Jaeger 链路追踪接入（OTel + 自动埋点）
 - [x] Week 3 Day 18: 全链路性能分析实战（混合业务模型 + Jaeger 瓶颈定位）
+- [x] Week 3 Day 19: 数据库压测与慢查询分析（EXPLAIN + 索引优化）

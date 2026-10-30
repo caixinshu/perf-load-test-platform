@@ -16,8 +16,15 @@ import time
 from typing import Any, Optional
 
 from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 
 app = FastAPI(title="Product Service")
+
+
+class ProductCreate(BaseModel):
+    name: str
+    price: float
+    stock: int = 0
 
 # ---------------------------------------------------------------------------
 # 链路追踪（OTel + Jaeger，本地默认关闭）
@@ -178,19 +185,48 @@ def get_product(product_id: int):
 
 
 @app.get("/products")
-def list_products(page: int = 1, page_size: int = 20):
-    """分页商品列表。"""
+def list_products(page: int = 1, page_size: int = 20, search: Optional[str] = None):
+    """分页商品列表；带 search 参数时走模糊搜索（无索引，用于慢查询演示）。"""
     conn = get_db()
     cur = conn.cursor()
-    offset = (page - 1) * page_size
-    cur.execute(
-        _adapt_sql("SELECT id, name, price, stock FROM products ORDER BY id LIMIT %s OFFSET %s"),
-        (page_size, offset),
-    )
+    if search:
+        cur.execute(
+            _adapt_sql("SELECT id, name, price, stock FROM products WHERE name LIKE %s ORDER BY id LIMIT %s OFFSET %s"),
+            (f"%{search}%", page_size, (page - 1) * page_size),
+        )
+    else:
+        offset = (page - 1) * page_size
+        cur.execute(
+            _adapt_sql("SELECT id, name, price, stock FROM products ORDER BY id LIMIT %s OFFSET %s"),
+            (page_size, offset),
+        )
     rows = cur.fetchall()
     cur.close()
     conn.close()
     return [{"id": r[0], "name": r[1], "price": float(r[2]), "stock": r[3]} for r in rows]
+
+
+@app.post("/products")
+def create_product(product: ProductCreate):
+    """创建商品（写入场景）。"""
+    conn = get_db()
+    cur = conn.cursor()
+    if IS_SQLITE:
+        cur.execute(
+            _adapt_sql("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)"),
+            (product.name, product.price, product.stock),
+        )
+        product_id = cur.lastrowid
+    else:
+        cur.execute(
+            "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s) RETURNING id",
+            (product.name, product.price, product.stock),
+        )
+        product_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"id": product_id, "name": product.name, "price": product.price, "stock": product.stock}
 
 
 @app.get("/health")

@@ -1,0 +1,98 @@
+# ============================================================
+# 数据库压测验证（Week 3 Day 19）
+#
+# 1. 启动 5 节点服务（含 PostgreSQL 慢查询日志）
+# 2. 用 k6 跑数据库压测脚本（读/写/查/搜混合）
+# 3. 断言错误率 < 5%，且有指标输出
+# ============================================================
+name: DB Stress Test
+
+on:
+  push:
+    paths:
+      - "perf/scripts/db-stress-test.js"
+      - "services/**"
+      - ".github/workflows/db-stress-test.yml"
+  workflow_dispatch:
+
+jobs:
+  db-stress-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build & start 5 services
+        run: |
+          echo "--- 启动 5 节点（含 PG 慢查询日志）---"
+          docker compose -f docker-compose.services.yml up -d --build
+
+          echo "--- 等待服务就绪 ---"
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+              echo "gateway ready"
+              break
+            fi
+            sleep 2
+          done
+
+      - name: Run db stress test
+        run: |
+          echo "--- 数据库压测（CI 快速版：10 VU / 60s）---"
+          docker run --rm \
+            --network perf-load-test-platform_ms-net \
+            -v "$(pwd)/perf/scripts/db-stress-test.js:/test.js" \
+            -e GATEWAY_URL=http://api-gateway:8000 \
+            grafana/k6 run /test.js \
+            --vus 10 --duration 60s \
+            --summary-export /tmp/db-stress-summary.json 2>&1 | tee /tmp/k6-db-stress.log
+
+          echo "--- 检查结果 ---"
+          python3 - <<'PY'
+          import json, sys
+
+          with open("/tmp/db-stress-summary.json") as f:
+              data = json.load(f)
+
+          metrics = data.get("metrics", {})
+
+          # 断言 1：有请求
+          http_reqs = metrics.get("http_reqs", {}).get("values", {}).get("count", 0)
+          if http_reqs < 10:
+              print(f"FAIL: 只有 {http_reqs} 个请求")
+              sys.exit(1)
+
+          # 断言 2：错误率 < 5%
+          failed = metrics.get("http_req_failed", {}).get("values", {}).get("rate", 0)
+          if failed > 0.05:
+              print(f"FAIL: 错误率 {failed:.2%} > 5%")
+              sys.exit(1)
+
+          # 断言 3：有响应时间
+          p95 = metrics.get("http_req_duration", {}).get("values", {}).get("p(95)", 0)
+          if p95 <= 0:
+              print("FAIL: 没有响应时间数据")
+              sys.exit(1)
+
+          print(f"PASS: http_reqs={http_reqs}, failed_rate={failed:.2%}, p95={p95:.1f}ms")
+          PY
+
+      - name: Show PostgreSQL slow query log
+        if: always()
+        run: |
+          echo "=== PostgreSQL 慢查询日志（>100ms）==="
+          docker compose -f docker-compose.services.yml logs db --tail=50 2>&1 | grep -i "duration" | head -20 || echo "no slow queries"
+
+      - name: Show service logs (for debugging)
+        if: failure()
+        run: |
+          echo "=== api-gateway ==="
+          docker compose -f docker-compose.services.yml logs api-gateway --tail=20
+          echo "=== product-service ==="
+          docker compose -f docker-compose.services.yml logs product-service --tail=20
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down -v

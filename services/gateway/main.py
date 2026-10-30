@@ -29,12 +29,20 @@ ORDER_URL = os.environ.get("ORDER_URL", "http://localhost:8002")
 
 
 @app.get("/products")
-async def list_products(page: int = 1, page_size: int = 20):
+async def list_products(page: int = 1, page_size: int = 20, search: str = None):
+    params = {"page": page, "page_size": page_size}
+    if search:
+        params["search"] = search
     async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            f"{PRODUCT_URL}/products",
-            params={"page": page, "page_size": page_size},
-        )
+        resp = await client.get(f"{PRODUCT_URL}/products", params=params)
+        return resp.json()
+
+
+@app.post("/products")
+async def create_product(request: Request):
+    body = await request.json()
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(f"{PRODUCT_URL}/products", json=body)
         return resp.json()
 
 
