@@ -109,17 +109,19 @@ def create_order(order: OrderCreate):
     # 4. 创建订单
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(
-        _adapt_sql(
-            "INSERT INTO orders (product_id, quantity, total_price) "
-            "VALUES (%s, %s, %s) RETURNING id"
-        ),
-        (order.product_id, order.quantity, total_price),
-    )
-    order_id = cur.lastrowid if IS_SQLITE else cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute(
+            _adapt_sql(
+                "INSERT INTO orders (product_id, quantity, total_price) "
+                "VALUES (%s, %s, %s) RETURNING id"
+            ),
+            (order.product_id, order.quantity, total_price),
+        )
+        order_id = cur.lastrowid if IS_SQLITE else cur.fetchone()[0]
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
 
     return {
         "order_id": order_id,
@@ -134,15 +136,17 @@ def create_order(order: OrderCreate):
 def get_order(order_id: int):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(
-        _adapt_sql(
-            "SELECT id, product_id, quantity, total_price, status, created_at FROM orders WHERE id = %s"
-        ),
-        (order_id,),
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute(
+            _adapt_sql(
+                "SELECT id, product_id, quantity, total_price, status, created_at FROM orders WHERE id = %s"
+            ),
+            (order_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
 
     if not row:
         raise HTTPException(status_code=404, detail="Order not found")

@@ -64,6 +64,22 @@ jobs:
           fi
           echo "✅ gateway reachable, k6 将通过 host 网络访问 localhost:8000"
 
+      - name: Sample gateway responses (debug)
+        run: |
+          echo "=== 1. GET /products/1 ==="
+          curl -s -w "\n[HTTP %{http_code}]\n" http://localhost:8000/products/1
+          echo ""
+          echo "=== 2. GET /products?page=1&page_size=2 ==="
+          curl -s -w "\n[HTTP %{http_code}]\n" "http://localhost:8000/products?page=1&page_size=2"
+          echo ""
+          echo "=== 3. POST /products ==="
+          curl -s -w "\n[HTTP %{http_code}]\n" -X POST http://localhost:8000/products \
+            -H "Content-Type: application/json" \
+            -d '{"name":"debug_test","price":1.0,"stock":1}'
+          echo ""
+          echo "=== 4. GET /products?search=product ==="
+          curl -s -w "\n[HTTP %{http_code}]\n" "http://localhost:8000/products?search=product"
+
       - name: Run db stress test
         run: |
           mkdir -p perf/results
@@ -128,12 +144,14 @@ jobs:
           docker compose -p perf-load-test-platform -f docker-compose.services.yml logs db --tail=50 2>&1 | grep -i "duration" | head -20 || echo "no slow queries"
 
       - name: Show service logs (for debugging)
-        if: failure()
+        if: always()
         run: |
           echo "=== api-gateway ==="
-          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs api-gateway --tail=20
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs api-gateway --tail=30
           echo "=== product-service ==="
-          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs product-service --tail=20
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs product-service --tail=30
+          echo "=== db (postgres) ==="
+          docker compose -p perf-load-test-platform -f docker-compose.services.yml logs db --tail=20
 
       - name: Cleanup
         if: always()

@@ -154,7 +154,10 @@ def init_db() -> None:
 def get_product(product_id: int):
     """查商品详情：先缓存，未命中查 DB，写缓存 TTL 60s。"""
     cache_key = f"product:{product_id}"
-    cached = cache.get(cache_key)
+    try:
+        cached = cache.get(cache_key)
+    except Exception:
+        cached = None
     if cached:
         # redis 返回 bytes，内存缓存返回 str，统一反序列化为 dict
         if isinstance(cached, (bytes, str)):
@@ -163,13 +166,15 @@ def get_product(product_id: int):
 
     conn = get_db()
     cur = conn.cursor()
-    cur.execute(
-        _adapt_sql("SELECT id, name, price, stock FROM products WHERE id = %s"),
-        (product_id,),
-    )
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute(
+            _adapt_sql("SELECT id, name, price, stock FROM products WHERE id = %s"),
+            (product_id,),
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
+        conn.close()
 
     if not row:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -180,7 +185,10 @@ def get_product(product_id: int):
         "price": float(row[2]),
         "stock": row[3],
     }
-    cache.setex(cache_key, 60, json.dumps(product))
+    try:
+        cache.setex(cache_key, 60, json.dumps(product))
+    except Exception:
+        pass
     return product
 
 
@@ -189,20 +197,22 @@ def list_products(page: int = 1, page_size: int = 20, search: Optional[str] = No
     """分页商品列表；带 search 参数时走模糊搜索（无索引，用于慢查询演示）。"""
     conn = get_db()
     cur = conn.cursor()
-    if search:
-        cur.execute(
-            _adapt_sql("SELECT id, name, price, stock FROM products WHERE name LIKE %s ORDER BY id LIMIT %s OFFSET %s"),
-            (f"%{search}%", page_size, (page - 1) * page_size),
-        )
-    else:
-        offset = (page - 1) * page_size
-        cur.execute(
-            _adapt_sql("SELECT id, name, price, stock FROM products ORDER BY id LIMIT %s OFFSET %s"),
-            (page_size, offset),
-        )
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    try:
+        if search:
+            cur.execute(
+                _adapt_sql("SELECT id, name, price, stock FROM products WHERE name LIKE %s ORDER BY id LIMIT %s OFFSET %s"),
+                (f"%{search}%", page_size, (page - 1) * page_size),
+            )
+        else:
+            offset = (page - 1) * page_size
+            cur.execute(
+                _adapt_sql("SELECT id, name, price, stock FROM products ORDER BY id LIMIT %s OFFSET %s"),
+                (page_size, offset),
+            )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+        conn.close()
     return [{"id": r[0], "name": r[1], "price": float(r[2]), "stock": r[3]} for r in rows]
 
 
@@ -211,21 +221,23 @@ def create_product(product: ProductCreate):
     """创建商品（写入场景）。"""
     conn = get_db()
     cur = conn.cursor()
-    if IS_SQLITE:
-        cur.execute(
-            _adapt_sql("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)"),
-            (product.name, product.price, product.stock),
-        )
-        product_id = cur.lastrowid
-    else:
-        cur.execute(
-            "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s) RETURNING id",
-            (product.name, product.price, product.stock),
-        )
-        product_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        if IS_SQLITE:
+            cur.execute(
+                _adapt_sql("INSERT INTO products (name, price, stock) VALUES (%s, %s, %s)"),
+                (product.name, product.price, product.stock),
+            )
+            product_id = cur.lastrowid
+        else:
+            cur.execute(
+                "INSERT INTO products (name, price, stock) VALUES (%s, %s, %s) RETURNING id",
+                (product.name, product.price, product.stock),
+            )
+            product_id = cur.fetchone()[0]
+        conn.commit()
+    finally:
+        cur.close()
+        conn.close()
     return {"id": product_id, "name": product.name, "price": product.price, "stock": product.stock}
 
 

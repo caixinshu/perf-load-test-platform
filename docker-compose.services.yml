@@ -25,6 +25,8 @@ services:
       - "log_min_duration_statement=100"  # 超过 100ms 的 SQL 记录为慢查询
       - "-c"
       - "shared_buffers=256MB"
+      - "-c"
+      - "max_connections=300"
     ports:
       - "5432:5432"
     volumes:
