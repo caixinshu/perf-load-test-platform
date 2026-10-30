@@ -43,6 +43,7 @@ jobs:
           mkdir -p perf/results
           echo "--- 数据库压测（CI 快速版：10 VU / 60s）---"
           docker run --rm \
+            --user 0:0 \
             --network perf-load-test-platform_ms-net \
             -v "$(pwd)/perf/scripts/db-stress-test.js:/test.js" \
             -v "$(pwd)/perf/results:/results" \
