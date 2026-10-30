@@ -31,6 +31,11 @@ services:
       - "5432:5432"
     volumes:
       - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
     networks:
       - ms-net
 
@@ -38,6 +43,11 @@ services:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
     networks:
       - ms-net
 
@@ -56,9 +66,12 @@ services:
   product-service:
     build: ./services/product
     depends_on:
-      - db
-      - cache-service
-      - jaeger
+      db:
+        condition: service_healthy
+      cache-service:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
     ports:
       - "8001:8000"
     environment:
@@ -66,15 +79,23 @@ services:
       - REDIS_URL=redis://cache-service:6379/0
       - OTEL_ENABLED=true
       - OTEL_OTLP_HOST=jaeger
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - ms-net
 
   order-service:
     build: ./services/order
     depends_on:
-      - db
-      - product-service
-      - jaeger
+      db:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
     ports:
       - "8002:8000"
     environment:
@@ -82,6 +103,11 @@ services:
       - PRODUCT_SERVICE_URL=http://product-service:8000
       - OTEL_ENABLED=true
       - OTEL_OTLP_HOST=jaeger
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     networks:
       - ms-net
 
@@ -89,9 +115,12 @@ services:
   api-gateway:
     build: ./services/gateway
     depends_on:
-      - product-service
-      - order-service
-      - jaeger
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      jaeger:
+        condition: service_started
     ports:
       - "8000:8000"
     environment:
