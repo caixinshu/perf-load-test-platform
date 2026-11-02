@@ -18,6 +18,9 @@ npm-debug.log*
 !test-items.json
 # 监控配置里需要入库的 JSON（Grafana 面板）
 !perf/monitoring/**/*.json
+# 性能测试框架的数据与配置 JSON
+!perf/package.json
+!perf/data/*.json
 
 # IDE
 .idea/

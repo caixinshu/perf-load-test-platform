@@ -1,0 +1,18 @@
+{
+  "name": "perf-framework",
+  "version": "1.0.0",
+  "description": "结构化性能测试框架 - 场景/配置/数据管理",
+  "scripts": {
+    "baseline": "k6 run scenarios/baseline.js -e ENV=dev --summary-export=reports/baseline-summary.json",
+    "load": "k6 run scenarios/load-test.js -e ENV=dev --summary-export=reports/load-summary.json",
+    "stress": "k6 run scenarios/stress-test.js -e ENV=dev --summary-export=reports/stress-summary.json",
+    "soak": "k6 run scenarios/soak-test.js -e ENV=dev --summary-export=reports/soak-summary.json",
+    "full": "k6 run scenarios/full-link/e-commerce.js -e ENV=dev --summary-export=reports/full-summary.json",
+    "product": "k6 run scenarios/api/product.js -e ENV=dev --summary-export=reports/product-summary.json",
+    "order": "k6 run scenarios/api/order.js -e ENV=dev --summary-export=reports/order-summary.json",
+    "gen-products": "node data/generators/product-gen.js 1000 data/products.json",
+    "clean": "node -e \"require('fs').readdirSync('reports').filter(f=>f.endsWith('.json')).forEach(f=>require('fs').unlinkSync('reports/'+f))\""
+  },
+  "keywords": ["k6", "performance", "load-test"],
+  "license": "MIT"
+}

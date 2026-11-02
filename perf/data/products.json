@@ -1,0 +1,12 @@
+[
+  { "id": 1, "name": "商品-A", "price": 99, "stock": 100 },
+  { "id": 2, "name": "商品-B", "price": 199, "stock": 50 },
+  { "id": 3, "name": "商品-C", "price": 299, "stock": 200 },
+  { "id": 4, "name": "商品-D", "price": 399, "stock": 80 },
+  { "id": 5, "name": "商品-E", "price": 499, "stock": 150 },
+  { "id": 6, "name": "商品-F", "price": 599, "stock": 30 },
+  { "id": 7, "name": "商品-G", "price": 699, "stock": 60 },
+  { "id": 8, "name": "商品-H", "price": 799, "stock": 90 },
+  { "id": 9, "name": "商品-I", "price": 899, "stock": 120 },
+  { "id": 10, "name": "商品-J", "price": 999, "stock": 40 }
+]
