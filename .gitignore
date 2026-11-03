@@ -21,6 +21,7 @@ npm-debug.log*
 # 性能测试框架的数据与配置 JSON
 !perf/package.json
 !perf/data/*.json
+!perf/baselines/*.json
 
 # IDE
 .idea/

@@ -1,0 +1,86 @@
+# ============================================================
+# .github/workflows/perf-gate.yml
+# 性能门禁 CI 工作流
+# 触发：
+#   - PR 到 main/develop：跑轻量冒烟性能（固定阈值检查）
+#   - 每日定时：跑完整性能回归（固定阈值 + 基线对比）
+#   - 手动触发：workflow_dispatch
+# ============================================================
+name: Performance Gate (性能门禁)
+
+on:
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    # 每日 UTC 20:00 (北京时间 04:00) 跑性能回归
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+jobs:
+  perf-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build & start services
+        run: |
+          docker compose -f docker-compose.services.yml up -d --build
+          # 等待网关健康
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Gateway is ready"
+              break
+            fi
+            echo "Waiting for gateway... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run performance smoke test
+        run: |
+          cd perf
+          k6 run scenarios/baseline.js \
+            -e ENV=dev \
+            --summary-export=../reports/perf-gate-summary.json
+        continue-on-error: true
+
+      - name: Run performance gate check (PR: threshold only)
+        if: github.event_name == 'pull_request'
+        run: |
+          python scripts/performance_gate.py \
+            --current reports/perf-gate-summary.json \
+            --max-p95 500 \
+            --max-fail-rate 0.05 \
+            --mode threshold
+
+      - name: Run performance gate check (daily: threshold + baseline)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: |
+          python scripts/performance_gate.py \
+            --current reports/perf-gate-summary.json \
+            --baseline perf/baselines/baseline-v1.json \
+            --max-p95 500 \
+            --max-fail-rate 0.05 \
+            --max-degradation 0.2 \
+            --mode both
+
+      - name: Upload perf report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf-gate-report
+          path: reports/
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down
