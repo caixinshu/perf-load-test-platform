@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>性能测试报告 - {{ test_type }}</title>
+  <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+      margin: 0;
+      padding: 24px;
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+    .header { text-align: center; margin-bottom: 28px; }
+    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+    .header .meta { color: #64748b; margin-top: 8px; font-size: 14px; }
+    .status-badge {
+      display: inline-block;
+      padding: 6px 18px;
+      border-radius: 20px;
+      font-weight: 600;
+      margin-top: 12px;
+      font-size: 14px;
+    }
+    .status-pass { background: #dcfce7; color: #166534; }
+    .status-fail { background: #fee2e2; color: #991b1b; }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .card {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .card-label { font-size: 13px; color: #64748b; margin-bottom: 8px; }
+    .card-value { font-size: 30px; font-weight: 700; color: #0f172a; }
+    .card-unit { font-size: 14px; color: #64748b; font-weight: 400; margin-left: 4px; }
+    .card-trend { font-size: 12px; margin-top: 6px; }
+    .trend-better { color: #16a34a; }
+    .trend-worse { color: #dc2626; }
+
+    .section {
+      background: #ffffff;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    }
+    .section h2 {
+      margin: 0 0 16px 0;
+      font-size: 18px;
+      border-bottom: 1px solid #e2e8f0;
+      padding-bottom: 12px;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f8fafc; font-weight: 600; color: #475569; }
+
+    .chart { height: 320px; }
+
+    .conclusion {
+      padding: 16px;
+      border-radius: 8px;
+      line-height: 1.7;
+    }
+    .conclusion.pass { background: #f0fdf4; border-left: 4px solid #16a34a; }
+    .conclusion.fail { background: #fef2f2; border-left: 4px solid #dc2626; }
+
+    .footer { text-align: center; color: #94a3b8; font-size: 12px; margin-top: 24px; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>性能测试报告 - {{ test_type }}</h1>
+    <div class="meta">环境: {{ env }} | 测试时间: {{ test_time }}</div>
+    <div class="status-badge {{ 'status-pass' if passed else 'status-fail' }}">
+      {{ '&#10004; 测试通过' if passed else '&#10008; 测试未通过' }}
+    </div>
+  </div>
+
+  <!-- 核心指标卡片 -->
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">TPS</div>
+      <div class="card-value">{{ '%.1f'|format(metrics.tps) }}<span class="card-unit">req/s</span></div>
+      {% if comparison and comparison.tps %}
+      <div class="card-trend {{ 'trend-better' if comparison.tps.is_better else 'trend-worse' }}">
+        {{ '&#8593;' if comparison.tps.diff_pct > 0 else '&#8595;' }} {{ '%.1f%%'|format(comparison.tps.diff_pct|abs) }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-label">P95 响应时间</div>
+      <div class="card-value">{{ '%.0f'|format(metrics.p95) }}<span class="card-unit">ms</span></div>
+      {% if comparison and comparison.p95 %}
+      <div class="card-trend {{ 'trend-better' if comparison.p95.is_better else 'trend-worse' }}">
+        {{ '&#8593;' if comparison.p95.diff_pct > 0 else '&#8595;' }} {{ '%.1f%%'|format(comparison.p95.diff_pct|abs) }}
+      </div>
+      {% endif %}
+    </div>
+    <div class="card">
+      <div class="card-label">P99 响应时间</div>
+      <div class="card-value">{{ '%.0f'|format(metrics.p99) }}<span class="card-unit">ms</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">错误率</div>
+      <div class="card-value">{{ '%.2f'|format(metrics.fail_rate * 100) }}<span class="card-unit">%%</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">最大 VU</div>
+      <div class="card-value">{{ '%.0f'|format(metrics.vus_max) }}<span class="card-unit">用户</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">总请求数</div>
+      <div class="card-value">{{ '%.0f'|format(metrics.total_reqs) }}<span class="card-unit">次</span></div>
+    </div>
+  </div>
+
+  <!-- 响应时间分布 -->
+  <div class="section">
+    <h2>响应时间分布</h2>
+    <div id="latencyChart" class="chart"></div>
+  </div>
+
+  <!-- 详细指标表 -->
+  <div class="section">
+    <h2>详细指标</h2>
+    <table>
+      <tr>
+        <th>指标</th>
+        <th>当前值</th>
+        {% if comparison %}<th>基线值</th><th>变化</th>{% endif %}
+      </tr>
+      <tr>
+        <td>平均响应时间</td>
+        <td>{{ '%.2f ms'|format(metrics.avg) }}</td>
+        {% if comparison and comparison.avg %}
+        <td>{{ '%.2f ms'|format(comparison.avg.baseline) }}</td>
+        <td class="{{ 'trend-better' if comparison.avg.is_better else 'trend-worse' }}">
+          {{ '%+.1f%%'|format(comparison.avg.diff_pct) }}
+        </td>
+        {% endif %}
+      </tr>
+      <tr>
+        <td>P50 (中位数)</td>
+        <td>{{ '%.2f ms'|format(metrics.med) }}</td>
+        {% if comparison %}<td>-</td><td>-</td>{% endif %}
+      </tr>
+      <tr>
+        <td>P90</td>
+        <td>{{ '%.2f ms'|format(metrics.p90) }}</td>
+        {% if comparison %}<td>-</td><td>-</td>{% endif %}
+      </tr>
+      <tr>
+        <td>P95</td>
+        <td>{{ '%.2f ms'|format(metrics.p95) }}</td>
+        {% if comparison and comparison.p95 %}
+        <td>{{ '%.2f ms'|format(comparison.p95.baseline) }}</td>
+        <td class="{{ 'trend-better' if comparison.p95.is_better else 'trend-worse' }}">
+          {{ '%+.1f%%'|format(comparison.p95.diff_pct) }}
+        </td>
+        {% endif %}
+      </tr>
+      <tr>
+        <td>P99</td>
+        <td>{{ '%.2f ms'|format(metrics.p99) }}</td>
+        {% if comparison %}<td>-</td><td>-</td>{% endif %}
+      </tr>
+      <tr>
+        <td>TPS</td>
+        <td>{{ '%.2f req/s'|format(metrics.tps) }}</td>
+        {% if comparison and comparison.tps %}
+        <td>{{ '%.2f req/s'|format(comparison.tps.baseline) }}</td>
+        <td class="{{ 'trend-better' if comparison.tps.is_better else 'trend-worse' }}">
+          {{ '%+.1f%%'|format(comparison.tps.diff_pct) }}
+        </td>
+        {% endif %}
+      </tr>
+      <tr>
+        <td>错误率</td>
+        <td>{{ '%.4f%%'|format(metrics.fail_rate * 100) }}</td>
+        {% if comparison %}<td>-</td><td>-</td>{% endif %}
+      </tr>
+    </table>
+  </div>
+
+  <!-- 结论建议 -->
+  <div class="section">
+    <h2>结论建议</h2>
+    <div class="conclusion {{ 'pass' if passed else 'fail' }}">
+      {% if passed %}
+      <strong>测试通过。</strong>核心指标满足门禁要求（P95 &lt; 500ms，错误率 &lt; 1%）。
+      {% if comparison %}
+      与基线对比，{% for key in ['avg', 'p95', 'tps', 'fail_rate'] %}{{ key }}{{ '变优' if comparison[key].is_better else '变差' }}（{{ '%+.1f%%'|format(comparison[key].diff_pct) }}）{% if not loop.last %}、{% endif %}{% endfor %}。
+      {% endif %}
+      {% else %}
+      <strong>测试未通过。</strong>
+      {% if metrics.p95 >= 500 %}P95 响应时间 ({{ '%.0f ms'|format(metrics.p95) }}) 超过阈值 500ms；{% endif %}
+      {% if metrics.fail_rate >= 0.01 %}错误率 ({{ '%.4f%%'|format(metrics.fail_rate * 100) }}) 超过阈值 1%；{% endif %}
+      建议排查慢接口和错误来源。
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="footer">由 PerfReportGenerator 自动生成 | k6 summary &rarr; Python &rarr; Jinja2 &rarr; HTML</div>
+
+  <script>
+    // 响应时间分布图
+    var latencyChart = echarts.init(document.getElementById('latencyChart'));
+    latencyChart.setOption({
+      tooltip: { trigger: 'axis' },
+      xAxis: { type: 'category', data: ['Min', 'Avg', 'P50', 'P90', 'P95', 'P99', 'Max'] },
+      yAxis: { type: 'value', name: 'ms' },
+      series: [{
+        name: '响应时间',
+        type: 'bar',
+        data: [
+          {{ metrics.min|round(1) }},
+          {{ metrics.avg|round(1) }},
+          {{ metrics.med|round(1) }},
+          {{ metrics.p90|round(1) }},
+          {{ metrics.p95|round(1) }},
+          {{ metrics.p99|round(1) }},
+          {{ metrics.max|round(1) }}
+        ],
+        itemStyle: { color: '#60a5fa' },
+        label: { show: true, position: 'top', formatter: '{c} ms', fontSize: 11 }
+      }]
+    });
+    window.addEventListener('resize', function() { latencyChart.resize(); });
+  </script>
+</body>
+</html>
