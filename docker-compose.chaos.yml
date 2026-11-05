@@ -1,0 +1,135 @@
+# ============================================================
+# 混沌工程实验编排：Toxiproxy 故障注入
+# 链路：client -> api-gateway:8000 -> toxiproxy:8474 -> product-service:8000
+#       api-gateway -> order-service:8002（直连，不注入故障）
+#
+# 启动：docker compose -f docker-compose.chaos.yml up -d --build
+# 管理 API: http://localhost:8475
+# 代理端口: toxiproxy:8474（转发到 product-service:8000）
+#
+# 实验：scripts/chaos-experiment.ps1 (Windows) / scripts/chaos-experiment.sh (Linux)
+# ============================================================
+
+services:
+  # ---- 基础设施 ----
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: demo
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo123
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=300"
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U demo -d demo"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - chaos-net
+
+  cache-service:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - chaos-net
+
+  # ---- 业务服务 ----
+  product-service:
+    build: ./services/product
+    depends_on:
+      db:
+        condition: service_healthy
+      cache-service:
+        condition: service_healthy
+    ports:
+      - "8001:8000"
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - REDIS_URL=redis://cache-service:6379/0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chaos-net
+
+  order-service:
+    build: ./services/order
+    depends_on:
+      db:
+        condition: service_healthy
+      product-service:
+        condition: service_healthy
+    ports:
+      - "8002:8000"
+    environment:
+      - DATABASE_URL=postgresql://demo:demo123@db:5432/demo
+      - PRODUCT_SERVICE_URL=http://product-service:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chaos-net
+
+  # ---- 故障注入代理 ----
+  # Toxiproxy 监听 8474 转发到 product-service:8000
+  # 管理 API 在 8475，通过 HTTP API 动态添加/移除 toxic
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.7.0
+    ports:
+      - "8474:8474"  # 代理端口（被代理的服务）
+      - "8475:8475"  # 管理 API 端口
+    depends_on:
+      - product-service
+    command:
+      - "-host=0.0.0.0"
+      - "-port=8474"
+    networks:
+      - chaos-net
+
+  # ---- 网关（通过 Toxiproxy 访问 product-service）----
+  api-gateway:
+    build: ./services/gateway
+    depends_on:
+      product-service:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      toxiproxy:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    environment:
+      # 关键：gateway 不再直连 product-service，而是走 toxiproxy 代理
+      - PRODUCT_URL=http://toxiproxy:8474
+      - ORDER_URL=http://order-service:8000
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - chaos-net
+
+networks:
+  chaos-net:
+    driver: bridge
+
+volumes:
+  pg-data:
