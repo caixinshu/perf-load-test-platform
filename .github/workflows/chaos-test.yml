@@ -1,0 +1,120 @@
+# ============================================================
+# .github/workflows/chaos-test.yml
+# 混沌工程实验 CI 工作流
+# 功能：用 Toxiproxy 注入 200ms 网络延迟，对比注入前/中/后的性能
+# 触发：
+#   - 手动触发：workflow_dispatch
+#   - 每周定时：周六 UTC 06:00 (北京时间 14:00)
+# ============================================================
+name: Chaos Test (混沌工程实验)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 每周六 UTC 06:00 (北京时间 14:00) 跑一次混沌实验
+    - cron: '0 6 * * 6'
+
+jobs:
+  chaos-experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install jinja2
+
+      - name: Build & start services (with Toxiproxy)
+        run: |
+          docker compose -f docker-compose.chaos.yml up -d --build
+          # 等待网关健康（gateway 通过 toxiproxy 访问 product-service）
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Gateway is ready"
+              break
+            fi
+            echo "Waiting for gateway... ($i/40)"
+            sleep 3
+          done
+
+      - name: Run chaos experiment (latency injection)
+        run: |
+          chmod +x scripts/chaos-experiment.sh
+          bash scripts/chaos-experiment.sh
+
+      - name: Generate comparison reports
+        if: always()
+        run: |
+          python scripts/generate_perf_report.py \
+            --summary reports/baseline-before.json \
+            --output reports/report-before.html \
+            --type baseline
+
+          python scripts/generate_perf_report.py \
+            --summary reports/baseline-with-latency.json \
+            --output reports/report-with-latency.html \
+            --type latency-200ms
+
+          python scripts/generate_perf_report.py \
+            --summary reports/baseline-after.json \
+            --output reports/report-after.html \
+            --type recovery
+
+      - name: Compare latency impact
+        if: always()
+        run: |
+          echo "=== 混沌实验结果对比 ==="
+          python - <<'EOF'
+          import json
+
+          def load(p):
+              try:
+                  with open(p) as f:
+                      d = json.load(f)
+                  m = d['metrics']
+                  return {
+                      'p95': m['http_req_duration'].get('p(95)', 0),
+                      'tps': m['http_reqs'].get('rate', 0),
+                      'fail': m['http_req_failed'].get('value', 0),
+                  }
+              except Exception as e:
+                  return {'p95': 0, 'tps': 0, 'fail': 0, 'error': str(e)}
+
+          before = load('reports/baseline-before.json')
+          during = load('reports/baseline-with-latency.json')
+          after = load('reports/baseline-after.json')
+
+          print(f"{'阶段':<12} {'P95(ms)':>10} {'TPS':>10} {'错误率':>10}")
+          print('-' * 45)
+          print(f"{'基线':<12} {before['p95']:>10.1f} {before['tps']:>10.1f} {before['fail']:>10.4f}")
+          print(f"{'200ms延迟':<12} {during['p95']:>10.1f} {during['tps']:>10.1f} {during['fail']:>10.4f}")
+          print(f"{'恢复后':<12} {after['p95']:>10.1f} {after['tps']:>10.1f} {after['fail']:>10.4f}")
+
+          if before['p95'] > 0 and during['p95'] > 0:
+              inc = (during['p95'] - before['p95']) / before['p95'] * 100
+              print(f"\nP95 增加: {inc:+.1f}% (注入 200ms 延迟后)")
+          if before['tps'] > 0 and during['tps'] > 0:
+              drop = (before['tps'] - during['tps']) / before['tps'] * 100
+              print(f"TPS 下降: {drop:+.1f}% (注入 200ms 延迟后)")
+          EOF
+
+      - name: Upload chaos experiment artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chaos-experiment-results
+          path: reports/
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.chaos.yml down
