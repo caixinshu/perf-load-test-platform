@@ -68,6 +68,7 @@
               <stringProp name="1">200</stringProp>
             </collectionProp>
             <stringProp name="Assertion.field">Assertion.response_code</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
           <hashTree/>
@@ -88,6 +89,7 @@
               <stringProp name="1">200</stringProp>
             </collectionProp>
             <stringProp name="Assertion.field">Assertion.response_code</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
           <hashTree/>
@@ -108,6 +110,7 @@
               <stringProp name="1">200</stringProp>
             </collectionProp>
             <stringProp name="Assertion.field">Assertion.response_code</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <intProp name="Assertion.test_type">8</intProp>
           </ResponseAssertion>
           <hashTree/>
@@ -140,6 +143,7 @@
               <stringProp name="2">201</stringProp>
             </collectionProp>
             <stringProp name="Assertion.field">Assertion.response_code</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <intProp name="Assertion.test_type">9</intProp>
           </ResponseAssertion>
           <hashTree/>
@@ -168,6 +172,7 @@
               <stringProp name="2">201</stringProp>
             </collectionProp>
             <stringProp name="Assertion.field">Assertion.response_code</stringProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
             <intProp name="Assertion.test_type">9</intProp>
           </ResponseAssertion>
           <hashTree/>
