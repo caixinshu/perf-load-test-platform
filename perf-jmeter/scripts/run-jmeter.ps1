@@ -28,8 +28,11 @@ $jmeter = Join-Path $JmeterHome "bin\jmeter.bat"
 $testPlan = "testplans\$Scenario.jmx"
 $props = "properties\env-$Env.properties"
 $commonProps = "properties\jmeter.properties"
-$jtl = "reports\$Scenario-$Env.jtl"
-$htmlReport = "reports\$Scenario-$Env-report"
+
+# 带时间戳的结果文件名，每次运行不覆盖旧结果
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$jtl = "reports\$Scenario-$Env-$timestamp.jtl"
+$htmlReport = "reports\$Scenario-$Env-$timestamp-report"
 
 if (-not (Test-Path $testPlan)) {
     Write-Host "测试计划不存在: $testPlan" -ForegroundColor Red

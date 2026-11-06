@@ -22,8 +22,11 @@ fi
 TESTPLAN="testplans/${SCENARIO}.jmx"
 PROPS="properties/env-${ENV}.properties"
 COMMON_PROPS="properties/jmeter.properties"
-JTL="reports/${SCENARIO}-${ENV}.jtl"
-HTML_REPORT="reports/${SCENARIO}-${ENV}-report"
+
+# 带时间戳的结果文件名，每次运行不覆盖旧结果
+TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+JTL="reports/${SCENARIO}-${ENV}-${TIMESTAMP}.jtl"
+HTML_REPORT="reports/${SCENARIO}-${ENV}-${TIMESTAMP}-report"
 
 if [ ! -f "$TESTPLAN" ]; then
     echo "测试计划不存在: $TESTPLAN"
