@@ -16,8 +16,8 @@
         <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
           <collectionProp name="Arguments.arguments"/>
         </elementProp>
-        <stringProp name="HTTPSampler.domain">${__P(baseUrl,localhost:8000)}</stringProp>
-        <stringProp name="HTTPSampler.port"></stringProp>
+        <stringProp name="HTTPSampler.domain">${__P(baseUrl,localhost)}</stringProp>
+        <stringProp name="HTTPSampler.port">${__P(port,8000)}</stringProp>
         <stringProp name="HTTPSampler.protocol">${__P(protocol,http)}</stringProp>
         <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
         <stringProp name="HTTPSampler.path"></stringProp>
