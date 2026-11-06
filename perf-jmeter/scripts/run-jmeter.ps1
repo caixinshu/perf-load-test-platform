@@ -11,9 +11,17 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# 默认 JMeter 安装路径
+$DefaultJmeterHome = "F:\必备工具\apache-jmeter-5.6.3\apache-jmeter-5.6.3"
+
 if (-not $JmeterHome) {
-    Write-Host "请设置 JMETER_HOME 环境变量或安装 JMeter" -ForegroundColor Red
-    exit 1
+    if (Test-Path $DefaultJmeterHome) {
+        $JmeterHome = $DefaultJmeterHome
+        Write-Host "使用默认 JMETER_HOME: $JmeterHome" -ForegroundColor Yellow
+    } else {
+        Write-Host "请设置 JMETER_HOME 环境变量或安装 JMeter" -ForegroundColor Red
+        exit 1
+    }
 }
 
 $jmeter = Join-Path $JmeterHome "bin\jmeter.bat"
