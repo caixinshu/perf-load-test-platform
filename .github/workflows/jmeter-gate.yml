@@ -1,0 +1,92 @@
+# ============================================================
+# .github/workflows/jmeter-gate.yml
+# JMeter 性能门禁 CI 工作流
+# 功能：用 JMeter 跑压测，解析 .jtl 检查 p95/错误率，上传 HTML 报告
+# ============================================================
+name: JMeter Performance Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: '测试场景'
+        required: true
+        default: 'baseline'
+      env:
+        description: '环境'
+        required: true
+        default: 'dev'
+        type: choice
+        options: [dev, staging, prod]
+  schedule:
+    - cron: '0 2 * * *'  # 每日 UTC 02:00
+
+jobs:
+  jmeter-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+
+      - name: Install JMeter
+        run: |
+          wget -q https://archive.apache.org/dist/jmeter/binaries/apache-jmeter-5.6.3.tgz
+          tar -xzf apache-jmeter-5.6.3.tgz
+          echo "JMETER_HOME=$PWD/apache-jmeter-5.6.3" >> $GITHUB_ENV
+          echo "$PWD/apache-jmeter-5.6.3/bin" >> $GITHUB_PATH
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install numpy
+
+      - name: Build & start services
+        run: |
+          docker compose -f docker-compose.services.yml up -d --build
+          for i in $(seq 1 40); do
+            if curl -sf http://localhost:8000/health; then
+              echo "Gateway is ready"
+              break
+            fi
+            echo "Waiting for gateway... ($i/40)"
+            sleep 3
+          done
+
+      - name: Run JMeter test
+        run: |
+          cd perf-jmeter
+          jmeter -n -t testplans/${{ github.event.inputs.scenario || 'baseline' }}.jmx \
+            -q properties/jmeter.properties \
+            -q properties/env-${{ github.event.inputs.env || 'dev' }}.properties \
+            -l reports/result.jtl \
+            -e -o reports/html-report
+
+      - name: Performance gate check
+        run: |
+          cd perf-jmeter
+          python scripts/jmeter_gate.py \
+            --jtl reports/result.jtl \
+            --max-p95 500 \
+            --max-fail-rate 0.01
+
+      - name: Upload JMeter report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jmeter-report
+          path: perf-jmeter/reports/
+
+      - name: Cleanup
+        if: always()
+        run: docker compose -f docker-compose.services.yml down
